@@ -1,18 +1,17 @@
 // ============================================================
 // GET /api/cron/update-results
 // Vercel Cron Job - Runs every 5 minutes during match hours
-// Updates pending bets with final results from API-Football
-// Schedule: vercel.json → { "crons": [{ "path": "/api/cron/update-results", "schedule": "*/5 15-23 * * *" }] }
+// Updates pending accumulator bets with final results from API-Football
+// Schedule: vercel.json → { "crons": [{ "path": "/api/cron/update-results", "schedule": "*/5 14-23 * * *" }] }
 // ============================================================
 
 import { NextRequest, NextResponse } from "next/server";
 import {
-  getApostasPendentes,
-  resolverAposta,
+  getApostasPendentesAcumulador,
   resetDailyCounters,
 } from "@/lib/core/database";
 import { getFixtureResult } from "@/lib/core/api-football";
-import { BankrollManager } from "@/lib/core/bankroll";
+import { AcumuladorEngine } from "@/lib/core/strategies";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // 5 min timeout (Vercel Pro)
@@ -40,58 +39,72 @@ export async function GET(req: NextRequest) {
       log.push("✅ Reset diário executado (banca início do dia atualizada)");
     }
 
-    // ── Fetch all pending bets with fixture IDs ───────────
-    const pendentes = await getApostasPendentes();
-    log.push(`📋 ${pendentes.length} apostas pendentes encontradas`);
+    // ── Fetch all pending accumulator bets ────────────────
+    const pendentes = await getApostasPendentesAcumulador();
+    log.push(`📋 ${pendentes.length} acumuladores pendentes encontrados`);
 
-    const manager = new BankrollManager();
+    const engine = new AcumuladorEngine();
 
     for (const aposta of pendentes) {
-      if (!aposta.api_fixture_id) continue;
-
       try {
-        const result = await getFixtureResult(aposta.api_fixture_id);
+        let allFinished = true;
+        let anyLoss = false;
+        const details: string[] = [];
 
-        // Skip if match is still in progress
-        if (!result || !["FT", "AET", "PEN"].includes(result.status)) {
-          log.push(`⏳ Fixture #${aposta.api_fixture_id} ainda em curso (${result?.status})`);
-          continue;
-        }
+        for (const sel of aposta.selecoes) {
+          const result = await getFixtureResult(sel.fixture_id);
 
-        // Determine outcome based on correct score bet
-        const metaData = aposta.metadata as {
-          placar_alvo?: string;
-          distribuicao?: Array<{ placar: string; stake: number; odd: number }>;
-        };
-
-        let resultado: "win" | "loss" = "loss";
-        let lucro_prejuizo = -aposta.stake;
-
-        const placarReal = `${result.homeGoals}-${result.awayGoals}`;
-
-        if (aposta.estrategia === "dutching") {
-          // Check if any distributed bet won
-          const ganhou = metaData.distribuicao?.find((d) => d.placar === placarReal);
-          if (ganhou) {
-            resultado = "win";
-            lucro_prejuizo = parseFloat((ganhou.stake * ganhou.odd - aposta.stake).toFixed(2));
+          // Skip if match is still in progress
+          if (!result || !["FT", "AET", "PEN"].includes(result.status)) {
+            allFinished = false;
+            details.push(`⏳ ${sel.jogo}: em curso (${result?.status ?? "NS"})`);
+            continue;
           }
-        } else if (aposta.estrategia === "funil_cantos") {
-          // For corners: simplified win/loss (expand with actual corner count in production)
-          resultado = "loss";
-          lucro_prejuizo = -aposta.stake;
+
+          const gH = result.homeGoals;
+          const gA = result.awayGoals;
+          const total = gH + gA;
+          let won = false;
+
+          switch (sel.mercado) {
+            case "over_0.5": won = total > 0; break;
+            case "over_1.5": won = total > 1; break;
+            case "over_2.5": won = total > 2; break;
+            case "under_5.5": won = total <= 5; break;
+            case "btts": won = gH > 0 && gA > 0; break;
+          }
+
+          if (!won) {
+            anyLoss = true;
+            details.push(`❌ ${sel.jogo}: falhou (${gH}-${gA} em ${sel.mercado})`);
+            break; // Stop at first loss
+          } else {
+            details.push(`✅ ${sel.jogo}: passou (${gH}-${gA} em ${sel.mercado})`);
+          }
         }
 
-        await resolverAposta(aposta.id, resultado, lucro_prejuizo);
-        await manager.aplicarResultado(lucro_prejuizo);
+        // ── Resolve Bet Logic ───────────────────────────
 
-        log.push(
-          `${resultado === "win" ? "✅" : "❌"} Aposta #${aposta.id.slice(0, 8)} — ${placarReal} → ${resultado} (${lucro_prejuizo >= 0 ? "+" : ""}${lucro_prejuizo}€)`
-        );
-        updated++;
+        if (anyLoss) {
+          // At least one selection failed -> LOSS
+          await engine.resolverAposta(aposta.id, "loss");
+          log.push(`💥 Acumulador #${aposta.id.slice(0, 8)} resolvido como LOSS. Motivo: ${details.join(", ")}`);
+          updated++;
+        }
+        else if (allFinished) {
+          // All selections finished and all won -> WIN
+          await engine.resolverAposta(aposta.id, "win");
+          log.push(`🏆 Acumulador #${aposta.id.slice(0, 8)} resolvido como WIN! Detalhes: ${details.join(", ")}`);
+          updated++;
+        }
+        else {
+          // Still matches in progress
+          log.push(`⏳ Acumulador #${aposta.id.slice(0, 8)} ainda aguarda outros jogos. Estado: ${details.join(", ")}`);
+        }
+
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Erro desconhecido";
-        log.push(`⚠️ Erro ao resolver aposta #${aposta.id.slice(0, 8)}: ${msg}`);
+        log.push(`⚠️ Erro ao processar acumulador #${aposta.id.slice(0, 8)}: ${msg}`);
         errors++;
       }
     }
