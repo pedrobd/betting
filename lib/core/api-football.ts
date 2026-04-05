@@ -135,11 +135,12 @@ export async function getOddsForFixture(
   // Minimal mock for odds if needed
   if (isMock || !data || data.filter((d: any) => d.bookmakers && d.bookmakers.length > 0).length === 0) {
     return {
-      "over_0.5": 1.05,
-      "over_1.5": 1.25,
-      "over_2.5": 1.60,
+      "over_0.5": 1.15,
+      "over_1.5": 1.40,
       "under_5.5": 1.08,
       "btts": 1.75,
+      "1": 2.10, "X": 3.40, "2": 3.20,
+      "1X": 1.30, "X2": 1.60, "12": 1.25
     };
   }
 
@@ -150,12 +151,23 @@ export async function getOddsForFixture(
   if (!bookmaker) return odds;
 
   for (const bet of bookmaker.bets) {
+    // Match Winner (id: 1)
+    if (bet.id === 1) {
+      bet.values.forEach((v: any) => {
+        if (v.value === "Home") odds["1"] = parseFloat(v.odd);
+        if (v.value === "Draw") odds["X"] = parseFloat(v.odd);
+        if (v.value === "Away") odds["2"] = parseFloat(v.odd);
+      });
+    }
     // Goals Over/Under (id: 5)
     if (bet.id === 5) {
       bet.values.forEach((v: any) => {
         if (v.value === "Over 0.5") odds["over_0.5"] = parseFloat(v.odd);
         if (v.value === "Over 1.5") odds["over_1.5"] = parseFloat(v.odd);
         if (v.value === "Over 2.5") odds["over_2.5"] = parseFloat(v.odd);
+        if (v.value === "Under 2.5") odds["under_2.5"] = parseFloat(v.odd);
+        if (v.value === "Under 3.5") odds["under_3.5"] = parseFloat(v.odd);
+        if (v.value === "Under 4.5") odds["under_4.5"] = parseFloat(v.odd);
         if (v.value === "Under 5.5") odds["under_5.5"] = parseFloat(v.odd);
       });
     }
@@ -164,8 +176,17 @@ export async function getOddsForFixture(
       const yesValue = bet.values.find((v: any) => v.value === "Yes");
       if (yesValue) odds["btts"] = parseFloat(yesValue.odd);
     }
+    // Double Chance (id: 12)
+    if (bet.id === 12) {
+      bet.values.forEach((v: any) => {
+        if (v.value === "Home/Draw") odds["1X"] = parseFloat(v.odd);
+        if (v.value === "Draw/Away") odds["X2"] = parseFloat(v.odd);
+        if (v.value === "Home/Away") odds["12"] = parseFloat(v.odd);
+      });
+    }
   }
 
   return odds;
 }
+
 

@@ -57,6 +57,24 @@ export type GoalMarket =
   | "under_5.5"
   | "btts";
 
+export type BetMarket = 
+  | GoalMarket 
+  | "1" | "X" | "2" 
+  | "1X" | "X2" | "12"
+  | "under_2.5" | "under_3.5" | "under_4.5";
+
+export interface EVOpportunity {
+  fixture_id: number;
+  jogo: string;
+  liga: string;
+  market: BetMarket;
+  odd: number;
+  probabilidade: number;
+  ev: number;
+  sugestao: string;
+}
+
+
 export interface AcumuladorSelecao {
   fixture_id: number;
   jogo: string;
