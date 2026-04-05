@@ -142,6 +142,27 @@ export default function DashboardPage() {
     }
   };
 
+  const cancelarAposta = async (apostaId: string) => {
+    if (!confirm("Tem certeza que deseja apagar esta aposta permanentemente?")) return;
+    
+    try {
+      const res = await fetch(`/api/acumulador/resolver?apostaId=${apostaId}`, {
+        method: "DELETE",
+      });
+      const json = await res.json();
+      if (json.success) {
+        setCicloState(json.data);
+        setApostaAtual(null);
+        showToast("Aposta eliminada com sucesso.", "info");
+        await fetchCiclo();
+      } else {
+        showToast(json.error ?? "Erro ao eliminar aposta.", "error");
+      }
+    } catch {
+      showToast("Erro ao conectar com o servidor.", "error");
+    }
+  };
+
   const pendente = cicloState?.aposta_pendente;
   const ciclo = cicloState?.ciclo;
 
@@ -262,7 +283,18 @@ export default function DashboardPage() {
               {resolvendo === "loss" ? "A processar..." : "❌ Perdeu"}
             </button>
           </div>
+          <div style={{ marginTop: '1rem', display: 'flex', justifyContent: 'center' }}>
+            <button 
+              className="btn-regenerar" 
+              style={{ width: 'auto', padding: '0.5rem 1rem' }}
+              onClick={() => cancelarAposta(pendente.id)}
+            >
+              🚫 Cancelar e Apagar Aposta (Odds Reais)
+            </button>
+          </div>
         </section>
+
+
       )}
 
       {/* ── Accumulator Builder ───────────────────────────── */}
@@ -368,8 +400,18 @@ export default function DashboardPage() {
                   <span className={`hist-lucro ${a.lucro_prejuizo >= 0 ? "hist-lucro--pos" : "hist-lucro--neg"}`}>
                     {a.lucro_prejuizo >= 0 ? "+" : ""}€{a.lucro_prejuizo.toFixed(2)}
                   </span>
-                  <span className="hist-toggle">{expandedAposta === a.id ? "▲" : "▼"}</span>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); cancelarAposta(a.id); }}
+                      style={{ background: 'none', border: 'none', color: 'var(--clr-red)', fontSize: '1rem', opacity: 0.6, cursor: 'pointer' }}
+                      title="Apagar aposta"
+                    >
+                      🗑️
+                    </button>
+                    <span className="hist-toggle" style={{ margin: 0 }}>{expandedAposta === a.id ? "▲" : "▼"}</span>
+                  </div>
                 </div>
+
                 {expandedAposta === a.id && (
                   <div className="hist-selecoes">
                     {a.selecoes?.map((s, i) => (

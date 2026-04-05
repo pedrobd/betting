@@ -6,6 +6,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { AcumuladorEngine } from "@/lib/core/strategies";
+import { removerApostaAcumulador } from "@/lib/core/database";
 
 export const dynamic = "force-dynamic";
 
@@ -39,3 +40,29 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: false, error: msg }, { status: 500 });
   }
 }
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const apostaId = searchParams.get("apostaId");
+
+    if (!apostaId) {
+      return NextResponse.json({ success: false, error: "apostaId é obrigatório." }, { status: 400 });
+    }
+
+    await removerApostaAcumulador(apostaId);
+    
+    const engine = new AcumuladorEngine();
+    const cicloState = await engine.getCicloState();
+
+    return NextResponse.json({
+      success: true,
+      data: cicloState,
+      message: "Aposta removida com sucesso.",
+    });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : "Erro interno";
+    return NextResponse.json({ success: false, error: msg }, { status: 500 });
+  }
+}
+

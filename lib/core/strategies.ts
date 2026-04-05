@@ -28,7 +28,22 @@ import type {
 // Constants
 // ============================================================
 
-const TOP_LEAGUES = new Set([94, 135, 39, 61, 78, 140, 2, 3, 848, 4, 88, 71, 253]);
+const TOP_LEAGUES = new Set([
+  94, 135, 39, 61, 78, 140, // Top Europe
+  2, 3, 4, 5, 848, // Cups
+  71, 72, 73, // Brazil A, B, Cup
+  144, 141, 143, // Belgium, Slovenia, etc.
+  88, 89, 90, // Netherlands
+  128, 129, 130, // Argentina
+  253, 262, 265, // USA, Mexico, Chile
+  179, 180, 183, // Scotland
+  301, 307, // Ukraine, Switzerland
+  79, 80, // Germany 2, 3
+  40, 41, 42, // England 2, 3, 4
+  136, 137, // Italy 2, 3
+  203, 204, // Turkey
+  10, 11 // Portugal 2, etc.
+]);
 const STAKE_INICIO = 5.00;
 const OBJETIVO = 1000.00;
 const MIN_SELECOES = 5;
@@ -133,21 +148,33 @@ export class AcumuladorEngine {
     const ciclo = await getCicloAtivo() ?? await criarCiclo(STAKE_INICIO);
 
     const today = new Date().toISOString().split("T")[0];
-    const allFixtures = await getFixturesByDate(today);
+    const tomorrow = new Date(Date.now() + 86400000).toISOString().split("T")[0];
+    
+    console.log(`[Acumulador] Procurando jogos para hoje (${today}) e amanhã (${tomorrow})...`);
+    
+    const fixturesToday = await getFixturesByDate(today);
+    const fixturesTomorrow = await getFixturesByDate(tomorrow);
+    const allFixtures = [...fixturesToday, ...fixturesTomorrow];
+
+    const candidates: GoalsAnalysis[] = [];
+    console.log(`[Acumulador] Total fixtures encontradas: ${allFixtures.length}`);
 
     const eligible = allFixtures.filter((f) => {
-      const leagueId = (f as ApiFixture & { league?: { id: number } }).league?.id;
+      const leagueId = (f as any).league?.id;
       const isTopLeague = leagueId ? TOP_LEAGUES.has(leagueId) : true;
       const notStarted = ["NS", "TBD"].includes(f.fixture.status.short);
       return isTopLeague && notStarted;
     });
 
-    const candidates: GoalsAnalysis[] = [];
+    console.log(`[Acumulador] Fixtures elegíveis (Liga + NS): ${eligible.length}`);
 
     for (const fixture of eligible) {
       try {
         const h2h = await getH2H(fixture.teams.home.id, fixture.teams.away.id, 10);
-        if (h2h.length < MIN_H2H_JOGOS) continue;
+        if (h2h.length < MIN_H2H_JOGOS) {
+          // console.log(`[Acumulador] ${fixture.fixture.id} ignorado: H2H insuficiente (${h2h.length})`);
+          continue;
+        }
 
         const analise = analisarH2H(h2h);
         const mercadoResult = selecionarMercado(analise);
@@ -157,25 +184,26 @@ export class AcumuladorEngine {
         const realOdds = await getOddsForFixture(fixture.fixture.id);
         const odd = realOdds[mercadoResult.mercado];
 
-        // Skip if no real odd found (User requested ALWAYS real odds)
         if (!odd || odd < 1.01) continue;
+
+        console.log(`[Acumulador] ✅ Jogo qualificado: ${fixture.teams.home.name} vs ${fixture.teams.away.name} | ${mercadoResult.mercado} @ ${odd}`);
 
         candidates.push({
           fixture_id: fixture.fixture.id,
           jogo: `${fixture.teams.home.name} vs ${fixture.teams.away.name}`,
           ...analise,
           mercado_recomendado: mercadoResult.mercado,
-          odd_estimada: odd, // renamed to maintain type compatibility but holds real odd
+          odd_estimada: odd,
           confianca: mercadoResult.confianca,
         });
 
-        // Throttle slightly to respect API rate limits (optional, but safer)
-        await new Promise(resolve => setTimeout(resolve, 50));
+        if (candidates.length >= 20) break; // Limit deep analysis to first 20 candidates for performance
+        await new Promise(resolve => setTimeout(resolve, 30));
       } catch (err) {
-        console.error(`Erro ao processar fixture ${fixture.fixture.id}:`, err);
         continue;
       }
     }
+
 
     // Sort by confidence (highest first)
     candidates.sort((a, b) => b.confianca - a.confianca);

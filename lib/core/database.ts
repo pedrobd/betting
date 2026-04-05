@@ -250,6 +250,16 @@ export async function getApostasDoCiclo(cicloId: string): Promise<ApostaAcumulad
   return data ?? [];
 }
 
+export async function removerApostaAcumulador(id: string): Promise<void> {
+  const db = getServerClient();
+  const { error } = await db
+    .from("acumulador_apostas")
+    .delete()
+    .eq("id", id);
+  if (error) throw new Error(`removerApostaAcumulador: ${error.message}`);
+}
+
+
 // ============================================================
 // DAILY RESET (called by cron at midnight)
 // ============================================================
