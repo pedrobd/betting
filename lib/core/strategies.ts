@@ -13,7 +13,7 @@ import {
   resolverApostaAcumulador,
   getApostasDoCiclo,
 } from "./database";
-import { getFixturesByDate, getH2H } from "./api-football";
+import { getFixturesByDate, getH2H, getOddsForFixture } from "./api-football";
 import type {
   GoalMarket,
   AcumuladorSelecao,
@@ -44,14 +44,7 @@ const THRESHOLDS = {
   under55: 0.92,
 };
 
-// Representative odds per market (used when real odds not available from API)
-const ODDS_ESTIMADAS: Record<GoalMarket, number> = {
-  "over_0.5": 1.18,
-  "over_1.5": 1.42,
-  "btts": 1.72,
-  "over_2.5": 1.82,
-  "under_5.5": 1.08,
-};
+
 
 // ============================================================
 // H2H Analysis
@@ -152,21 +145,36 @@ export class AcumuladorEngine {
     const candidates: GoalsAnalysis[] = [];
 
     for (const fixture of eligible) {
-      const h2h = await getH2H(fixture.teams.home.id, fixture.teams.away.id, 10);
-      if (h2h.length < MIN_H2H_JOGOS) continue;
+      try {
+        const h2h = await getH2H(fixture.teams.home.id, fixture.teams.away.id, 10);
+        if (h2h.length < MIN_H2H_JOGOS) continue;
 
-      const analise = analisarH2H(h2h);
-      const mercadoResult = selecionarMercado(analise);
-      if (!mercadoResult) continue;
+        const analise = analisarH2H(h2h);
+        const mercadoResult = selecionarMercado(analise);
+        if (!mercadoResult) continue;
 
-      candidates.push({
-        fixture_id: fixture.fixture.id,
-        jogo: `${fixture.teams.home.name} vs ${fixture.teams.away.name}`,
-        ...analise,
-        mercado_recomendado: mercadoResult.mercado,
-        odd_estimada: ODDS_ESTIMADAS[mercadoResult.mercado],
-        confianca: mercadoResult.confianca,
-      });
+        // Fetch real odds for the selected market
+        const realOdds = await getOddsForFixture(fixture.fixture.id);
+        const odd = realOdds[mercadoResult.mercado];
+
+        // Skip if no real odd found (User requested ALWAYS real odds)
+        if (!odd || odd < 1.01) continue;
+
+        candidates.push({
+          fixture_id: fixture.fixture.id,
+          jogo: `${fixture.teams.home.name} vs ${fixture.teams.away.name}`,
+          ...analise,
+          mercado_recomendado: mercadoResult.mercado,
+          odd_estimada: odd, // renamed to maintain type compatibility but holds real odd
+          confianca: mercadoResult.confianca,
+        });
+
+        // Throttle slightly to respect API rate limits (optional, but safer)
+        await new Promise(resolve => setTimeout(resolve, 50));
+      } catch (err) {
+        console.error(`Erro ao processar fixture ${fixture.fixture.id}:`, err);
+        continue;
+      }
     }
 
     // Sort by confidence (highest first)

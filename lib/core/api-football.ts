@@ -1,4 +1,4 @@
-﻿// ============================================================
+// ============================================================
 // ApiFootballClient - API-Sports Direct (v3.football.api-sports.io)
 // Uses x-apisports-key header (NOT RapidAPI)
 // Falls back to mock when key is missing or API fails
@@ -126,3 +126,46 @@ export async function getFixtureResult(
     status: fixture.fixture.status.short,
   };
 }
+
+export async function getOddsForFixture(
+  fixtureId: number
+): Promise<Record<string, number>> {
+  const { data, isMock } = await apiFetch<any[]>("/odds", { fixture: String(fixtureId) });
+  
+  // Minimal mock for odds if needed
+  if (isMock || !data || data.filter((d: any) => d.bookmakers && d.bookmakers.length > 0).length === 0) {
+    return {
+      "over_0.5": 1.05,
+      "over_1.5": 1.25,
+      "over_2.5": 1.60,
+      "under_5.5": 1.08,
+      "btts": 1.75,
+    };
+  }
+
+  const odds: Record<string, number> = {};
+  
+  // API-Football returns odds per bookmaker. We use the first one (usually the main one).
+  const bookmaker = data[0].bookmakers[0];
+  if (!bookmaker) return odds;
+
+  for (const bet of bookmaker.bets) {
+    // Goals Over/Under (id: 5)
+    if (bet.id === 5) {
+      bet.values.forEach((v: any) => {
+        if (v.value === "Over 0.5") odds["over_0.5"] = parseFloat(v.odd);
+        if (v.value === "Over 1.5") odds["over_1.5"] = parseFloat(v.odd);
+        if (v.value === "Over 2.5") odds["over_2.5"] = parseFloat(v.odd);
+        if (v.value === "Under 5.5") odds["under_5.5"] = parseFloat(v.odd);
+      });
+    }
+    // Both Teams Score (id: 8)
+    if (bet.id === 8) {
+      const yesValue = bet.values.find((v: any) => v.value === "Yes");
+      if (yesValue) odds["btts"] = parseFloat(yesValue.odd);
+    }
+  }
+
+  return odds;
+}
+
