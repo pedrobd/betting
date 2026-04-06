@@ -12,7 +12,8 @@ export const dynamic = "force-dynamic";
 export async function POST() {
   console.log("DEBUG: POST /api/strategies/acumulador hit at " + new Date().toISOString());
   try {
-    await FlashscoreBot.syncLiveGames();
+    // ⚠️ Scraper decoupled to Github Actions. Vercel only reads from Supabase!
+    // await FlashscoreBot.syncLiveGames();
 
     const engine = new AcumuladorEngine();
     const aposta = await engine.gerarAcumulador();

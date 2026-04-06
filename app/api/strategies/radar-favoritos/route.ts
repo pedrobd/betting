@@ -4,8 +4,8 @@ import { FlashscoreBot } from "@/lib/core/flashscore-bot";
 
 export async function GET() {
   try {
-    // 1. Call the puppeteer bot to update cache
-    await FlashscoreBot.syncLiveGames();
+    // ⚠️ Scraper decoupled to Github Actions. Vercel only reads from Supabase!
+    // await FlashscoreBot.syncLiveGames();
 
     const engine = new RadarFavoritosEngine();
     const ops = await engine.scanFavorites();

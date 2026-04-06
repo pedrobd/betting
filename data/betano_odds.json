@@ -2,13 +2,13 @@
   {
     "home": "Casa Pia AC",
     "away": "Benfica",
-    "time": "89",
+    "time": "90+4",
     "league": "Liga Portugal Betclic",
     "odds": {
       "1": 12.5,
       "2": 1.18,
       "X": 6.4,
-      "under_5.5": 1.08
+      "under_5.5": 1.03
     },
     "avg_goals": 2.81,
     "home_pos": 16,
@@ -25,7 +25,7 @@
       "1": null,
       "2": null,
       "X": null,
-      "under_5.5": 1.04
+      "under_5.5": 1.08
     },
     "avg_goals": 5.2,
     "home_pos": 10,
@@ -36,13 +36,13 @@
   {
     "home": "FC Cajamarca",
     "away": "Los Chankas",
-    "time": "78",
+    "time": "84",
     "league": "Liga 1 - Abertura",
     "odds": {
       "1": 2.25,
       "2": 2.5,
       "X": 3,
-      "under_5.5": 1.04
+      "under_5.5": 1.07
     },
     "avg_goals": 2.56,
     "home_pos": 5,

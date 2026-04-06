@@ -269,3 +269,26 @@ export async function resetDailyCounters(): Promise<void> {
   const { error } = await db.rpc("reset_daily_snapshot");
   if (error) throw new Error(`resetDailyCounters: ${error.message}`);
 }
+
+// ============================================================
+// LIVE ODDS CACHE (Flashscore Deep Scraper)
+// ============================================================
+
+export async function saveLiveOdds(games: any[]): Promise<void> {
+  const db = getServerClient();
+  const { error } = await db
+    .from("live_odds")
+    .upsert({ id: 1, games_json: games, updated_at: new Date().toISOString() });
+  if (error) throw new Error(`saveLiveOdds: ${error.message}`);
+}
+
+export async function getLiveOdds(): Promise<any[]> {
+  const db = getServerClient();
+  const { data, error } = await db
+    .from("live_odds")
+    .select("games_json")
+    .eq("id", 1)
+    .single();
+  if (error && error.code !== "PGRST116") throw new Error(`getLiveOdds: ${error.message}`);
+  return data?.games_json ?? [];
+}

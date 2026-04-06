@@ -1,6 +1,6 @@
 import puppeteer from 'puppeteer';
-import fs from 'fs';
 import path from 'path';
+import { saveLiveOdds } from "./database";
 
 const CACHE_PATH = path.join(process.cwd(), "data", "betano_odds.json");
 
@@ -282,8 +282,8 @@ export class FlashscoreBot {
       }
 
       if (finalGames.length > 0) {
-        fs.writeFileSync(CACHE_PATH, JSON.stringify(finalGames, null, 2), "utf-8");
-        console.log(`[FlashscoreBot] 💾 Guardados ${finalGames.length} jogos reais convertidos e gravados no cache de disco.`);
+        await saveLiveOdds(finalGames);
+        console.log(`[FlashscoreBot] 💾 Guardados ${finalGames.length} jogos reais e atualizados no Supabase (live_odds).`);
       } else {
         console.log(`[FlashscoreBot] ⚠️ Zero jogos extraídos. Possivelmente a classe CSS mudou ou não há jogos abertos.`);
       }

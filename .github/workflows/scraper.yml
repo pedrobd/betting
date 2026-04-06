@@ -1,0 +1,31 @@
+name: Flashscore Cloud Scraper
+
+on:
+  schedule:
+    # Corre aos minutos 0, 15, 30, 45 (a cada 15 min)
+    - cron: '*/15 * * * *'
+  workflow_dispatch: # Permite correr o bot manualmente no GitHub!
+
+jobs:
+  scrape_and_push:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: 📦 Install Dependencies
+        run: npm ci
+
+      - name: 🤖 Run Flashscore Deep Scraper
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: npx tsx scripts/run-scraper.ts

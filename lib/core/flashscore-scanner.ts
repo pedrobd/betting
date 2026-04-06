@@ -1,5 +1,4 @@
-import fs from "fs";
-import path from "path";
+import { getLiveOdds } from "./database";
 import { normalizeTeamName } from "./utils";
 
 export interface FlashscoreGame {
@@ -27,18 +26,16 @@ export interface FlashscoreGame {
   away_record?: string;
 }
 
-const CACHE_PATH = path.join(process.cwd(), "data", "betano_odds.json"); // Reusing this for now to avoid breaking dashboard
-
 /**
  * FLASHSCORE SCANNER SERVICE
- * The new single source of truth for 2026 fixtures and Under 5.5 odds.
+ * Reads from Supabase `live_odds` cache.
  */
 export class FlashscoreScanner {
   private static instance: FlashscoreScanner;
   private cache: FlashscoreGame[] = [];
 
   private constructor() {
-    this.reloadCache();
+    // We don't load async in constructor
   }
 
   public static getInstance(): FlashscoreScanner {
@@ -48,18 +45,12 @@ export class FlashscoreScanner {
     return FlashscoreScanner.instance;
   }
 
-  public reloadCache() {
+  public async reloadCache(): Promise<void> {
     try {
-      if (fs.existsSync(CACHE_PATH)) {
-        const data = fs.readFileSync(CACHE_PATH, "utf-8");
-        this.cache = JSON.parse(data);
-        console.log(`[FlashscoreScanner] 🟢 Loaded ${this.cache.length} games from Cache.`);
-      } else {
-        console.warn(`[FlashscoreScanner] ⚠️ Cache not found at ${CACHE_PATH}`);
-        this.cache = [];
-      }
+      this.cache = await getLiveOdds();
+      console.log(`[FlashscoreScanner] 🟢 Loaded ${this.cache.length} games from Supabase Cache.`);
     } catch (e) {
-      console.error("[FlashscoreScanner] ❌ Error reloading cache:", e);
+      console.error("[FlashscoreScanner] ❌ Error loading from DB cache:", e);
       this.cache = [];
     }
   }

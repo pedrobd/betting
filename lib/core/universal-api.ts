@@ -33,8 +33,8 @@ export class UniversalAPIClient {
   async getActionableGames(): Promise<UniversalFixture[]> {
     console.log("[Shield] 🎯 FLASHSCORE-ONLY MODE: Fetching 2026 fixtures...");
     
-    // Refresh cache from file
-    flashscoreScanner.reloadCache();
+    // Refresh cache from Supabase
+    await flashscoreScanner.reloadCache();
     const games = flashscoreScanner.getAllGames();
 
     if (games.length === 0) {
