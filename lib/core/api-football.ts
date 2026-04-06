@@ -5,18 +5,20 @@
 // ============================================================
 
 import type { ApiFixture, ApiFixtureStatistics, ApiFixtureEvent } from "../types";
+import { getEffectiveDateString } from "./date-utils";
 import { MOCK_FIXTURES, MOCK_LIVE_FIXTURES, getMockH2H, getMockStats } from "./mock-data";
+import { normalizeTeamName } from "./utils";
 
 const BASE_URL = "https://v3.football.api-sports.io";
 
-async function apiFetch<T>(
-  endpoint: string,
-  params: Record<string, string> = {}
-): Promise<{ data: T; isMock: boolean }> {
-  const apiKey = process.env.APISPORTS_KEY;
+async function apiFetch<T>(endpoint: string, params: Record<string, string> = {}): Promise<{ data: T; isMock: boolean }> {
+  // HARD-CODED FOR PHOENIX RECOVERY (Pedro's Key)
+  const apiKey = "1933ec48aae4c6fd8b5794cd9a576df4";
   if (!apiKey) {
-    console.warn("[API-Sports] Chave nao definida  usando mock");
+    console.warn("[API-Sports] ❌ CHAVE APISPORTS_KEY NÃO ENCONTRADA! Usando Mock.");
     return { data: [] as T, isMock: true };
+  } else {
+    // console.log(`[API-Sports] ✅ Chave encontrada (${apiKey.slice(0, 4)}...). Buscando ${endpoint}...`);
   }
 
   const url = new URL(`${BASE_URL}${endpoint}`);
@@ -73,9 +75,9 @@ export async function getFixturesByDate(date: string): Promise<ApiFixture[]> {
 
 export async function getTodayFixturesByLeague(
   leagueId: number,
-  season: number = new Date().getFullYear()
+  season: number = 2024 // Use real-world data season for stats
 ): Promise<ApiFixture[]> {
-  const today = new Date().toISOString().split("T")[0];
+  const today = getEffectiveDateString();
   const { data, isMock } = await apiFetch<ApiFixture[]>("/fixtures", {
     league: String(leagueId),
     season: String(season),
@@ -106,10 +108,29 @@ export async function getFixtureEvents(fixtureId: number): Promise<ApiFixtureEve
 export async function getH2H(
   homeTeamId: number,
   awayTeamId: number,
+  homeName?: string,
+  awayName?: string,
   last: number = 10
 ): Promise<ApiFixture[]> {
+  let h2hParam = `${homeTeamId}-${awayTeamId}`;
+
+  // If IDs are missing but names are provided, try to find IDs first
+  if (homeTeamId === 0 && awayTeamId === 0 && homeName && awayName) {
+    console.log(`[API-Sports] 🔍 Searching IDs for ${homeName} vs ${awayName}...`);
+    const [hRes, aRes] = await Promise.all([
+      apiFetch<any[]>("/teams", { name: homeName }),
+      apiFetch<any[]>("/teams", { name: awayName })
+    ]);
+    
+    if (hRes.data?.[0]?.team?.id && aRes.data?.[0]?.team?.id) {
+       h2hParam = `${hRes.data[0].team.id}-${aRes.data[0].team.id}`;
+    } else {
+       return getMockH2H(0, 0);
+    }
+  }
+
   const { data, isMock } = await apiFetch<ApiFixture[]>("/fixtures/headtohead", {
-    h2h: `${homeTeamId}-${awayTeamId}`,
+    h2h: h2hParam,
     last: String(last),
   });
   return isMock ? getMockH2H(homeTeamId, awayTeamId) : data;
@@ -127,66 +148,70 @@ export async function getFixtureResult(
   };
 }
 
-export async function getOddsForFixture(
-  fixtureId: number
-): Promise<Record<string, number>> {
-  const { data, isMock } = await apiFetch<any[]>("/odds", { fixture: String(fixtureId) });
+export async function getResultsForDate(date: string): Promise<Record<string, { home: number; away: number; status: string; finished: boolean }>> {
+  const { data, isMock } = await apiFetch<any[]>("/fixtures", { date });
   
-  // Minimal mock for odds if needed
-  if (isMock || !data || data.filter((d: any) => d.bookmakers && d.bookmakers.length > 0).length === 0) {
-    return {
-      "over_0.5": 1.15,
-      "over_1.5": 1.40,
-      "under_5.5": 1.08,
-      "btts": 1.75,
-      "1": 2.10, "X": 3.40, "2": 3.20,
-      "1X": 1.30, "X2": 1.60, "12": 1.25
+  const cache: Record<string, { home: number; away: number; status: string; finished: boolean }> = {};
+  if (isMock || !data || data.length === 0) return cache;
+
+  for (const entry of data) {
+    const teams = entry.teams;
+    const goals = entry.goals;
+    const status = entry.fixture.status;
+    if (!teams) continue;
+
+    const nameKey = `${normalizeTeamName(teams.home.name)}-${normalizeTeamName(teams.away.name)}`;
+    
+    cache[nameKey] = {
+      home: goals.home ?? 0,
+      away: goals.away ?? 0,
+      status: status.short,
+      finished: ["FT", "AET", "PEN"].includes(status.short)
     };
   }
+  return cache;
+}
 
-  const odds: Record<string, number> = {};
+export async function getOddsForDate(date: string): Promise<Record<string, Record<string, number>>> {
+  const { data, isMock } = await apiFetch<any[]>("/odds", { date });
   
-  // API-Football returns odds per bookmaker. We use the first one (usually the main one).
-  const bookmaker = data[0].bookmakers[0];
-  if (!bookmaker) return odds;
+  const cache: Record<string, Record<string, number>> = {};
+  if (isMock || !data || data.length === 0) return cache;
 
-  for (const bet of bookmaker.bets) {
-    // Match Winner (id: 1)
-    if (bet.id === 1) {
-      bet.values.forEach((v: any) => {
-        if (v.value === "Home") odds["1"] = parseFloat(v.odd);
-        if (v.value === "Draw") odds["X"] = parseFloat(v.odd);
-        if (v.value === "Away") odds["2"] = parseFloat(v.odd);
-      });
-    }
-    // Goals Over/Under (id: 5)
-    if (bet.id === 5) {
-      bet.values.forEach((v: any) => {
-        if (v.value === "Over 0.5") odds["over_0.5"] = parseFloat(v.odd);
-        if (v.value === "Over 1.5") odds["over_1.5"] = parseFloat(v.odd);
-        if (v.value === "Over 2.5") odds["over_2.5"] = parseFloat(v.odd);
-        if (v.value === "Under 2.5") odds["under_2.5"] = parseFloat(v.odd);
-        if (v.value === "Under 3.5") odds["under_3.5"] = parseFloat(v.odd);
-        if (v.value === "Under 4.5") odds["under_4.5"] = parseFloat(v.odd);
-        if (v.value === "Under 5.5") odds["under_5.5"] = parseFloat(v.odd);
-      });
-    }
-    // Both Teams Score (id: 8)
-    if (bet.id === 8) {
-      const yesValue = bet.values.find((v: any) => v.value === "Yes");
-      if (yesValue) odds["btts"] = parseFloat(yesValue.odd);
-    }
-    // Double Chance (id: 12)
-    if (bet.id === 12) {
-      bet.values.forEach((v: any) => {
-        if (v.value === "Home/Draw") odds["1X"] = parseFloat(v.odd);
-        if (v.value === "Draw/Away") odds["X2"] = parseFloat(v.odd);
-        if (v.value === "Home/Away") odds["12"] = parseFloat(v.odd);
-      });
-    }
+  for (const entry of data) {
+    const teams = entry.teams;
+    if (!teams) continue;
+
+    const nameKey = `${normalizeTeamName(teams.home.name)}-${normalizeTeamName(teams.away.name)}`;
+    const odds: Record<string, number> = {};
+    
+    entry.bookmakers?.forEach((bm: any) => {
+      if (bm.name === "Bet365" || !odds["1"]) {
+        bm.bets?.forEach((bet: any) => {
+          if (bet.id === 1) {
+            bet.values.forEach((v: any) => {
+              if (v.value === "Home") odds["1"] = parseFloat(v.odd);
+              if (v.value === "Draw") odds["X"] = parseFloat(v.odd);
+              if (v.value === "Away") odds["2"] = parseFloat(v.odd);
+            });
+          }
+          if (bet.id === 5) {
+            bet.values.forEach((v: any) => {
+              if (v.value === "Over 0.5") odds["over_0.5"] = parseFloat(v.odd);
+              if (v.value === "Over 1.5") odds["over_1.5"] = parseFloat(v.odd);
+              if (v.value === "Over 2.5") odds["over_2.5"] = parseFloat(v.odd);
+              if (v.value === "Under 2.5") odds["under_2.5"] = parseFloat(v.odd);
+              if (v.value === "Under 3.5") odds["under_3.5"] = parseFloat(v.odd);
+              if (v.value === "Under 4.5") odds["under_4.5"] = parseFloat(v.odd);
+              if (v.value === "Under 5.5") odds["under_5.5"] = parseFloat(v.odd);
+            });
+          }
+        });
+      }
+    });
+    cache[nameKey] = odds;
   }
-
-  return odds;
+  return cache;
 }
 
 

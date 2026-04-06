@@ -12,6 +12,7 @@ import {
 } from "@/lib/core/database";
 import { getFixtureResult } from "@/lib/core/api-football";
 import { AcumuladorEngine } from "@/lib/core/strategies";
+import { universalShield } from "@/lib/core/universal-api";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // 5 min timeout (Vercel Pro)
@@ -52,12 +53,17 @@ export async function GET(req: NextRequest) {
         const details: string[] = [];
 
         for (const sel of aposta.selecoes) {
-          const result = await getFixtureResult(sel.fixture_id);
+          const names = sel.jogo.split(" vs ");
+          const home = names[0];
+          const away = names[1];
+
+          // Use the Universal Shield to find the result across ALL APIs
+          const result = await universalShield.getUniversalResult(home, away);
 
           // Skip if match is still in progress
-          if (!result || !["FT", "AET", "PEN"].includes(result.status)) {
+          if (!result || !result.finished) {
             allFinished = false;
-            details.push(`⏳ ${sel.jogo}: em curso (${result?.status ?? "NS"})`);
+            details.push(`⏳ ${sel.jogo}: em curso ou aguardando (${result?.status ?? "NS"})`);
             continue;
           }
 
@@ -70,7 +76,10 @@ export async function GET(req: NextRequest) {
             case "over_0.5": won = total > 0; break;
             case "over_1.5": won = total > 1; break;
             case "over_2.5": won = total > 2; break;
-            case "under_5.5": won = total <= 5; break;
+            case "under_2.5": won = total < 3; break;
+            case "under_3.5": won = total < 4; break;
+            case "under_4.5": won = total < 5; break;
+            case "under_5.5": won = total < 6; break;
             case "btts": won = gH > 0 && gA > 0; break;
           }
 

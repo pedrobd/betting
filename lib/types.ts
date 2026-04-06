@@ -78,12 +78,14 @@ export interface EVOpportunity {
 export interface AcumuladorSelecao {
   fixture_id: number;
   jogo: string;
-  mercado: GoalMarket;
+  mercado: BetMarket;
   odd: number;
   probabilidade_estimada: number; // 0-1
+  horario?: string;
 }
 
 export interface AcumuladorAposta {
+  id?: string; // Optional for pending creations
   ciclo_id: string;
   stake: number;
   odd_total: number;
@@ -134,10 +136,11 @@ export interface GoalsAnalysis {
   taxa_under55: number;
   taxa_btts: number;
   media_golos: number;
-  mercado_recomendado: GoalMarket;
+  mercado_recomendado: BetMarket;
   odd_estimada: number;
   confianca: number; // 0-1
 }
+
 
 // ============================================================
 // API-Football Types
@@ -155,6 +158,7 @@ export interface ApiFixture {
   };
   goals: { home: number | null; away: number | null };
   score: { halftime: { home: number | null; away: number | null } };
+  league: { id: number; name: string; country: string; logo: string; flag: string; season: number; round: string };
 }
 
 export interface ApiFixtureStatistics {

@@ -10,6 +10,7 @@ interface Selecao {
   mercado: string;
   odd: number;
   probabilidade_estimada: number;
+  horario?: string;
 }
 
 interface ApostaGerada {
@@ -137,14 +138,20 @@ export default function DashboardPage() {
 
   useEffect(() => {
     fetchCiclo();
-    if (activeTab === "ev") fetchEV();
     
     const interval = setInterval(() => {
       fetchCiclo();
-      if (activeTab === "ev") fetchEV();
-    }, 60000);
+    }, 30000); // Ciclo keeps auto-updating for results
     return () => clearInterval(interval);
-  }, [fetchCiclo, fetchEV, activeTab]);
+  }, [fetchCiclo]);
+
+  // Initial EV fetch when tab changes, but NO interval
+  useEffect(() => {
+    if (activeTab === "ev" && evOps.length === 0) {
+      fetchEV();
+    }
+  }, [activeTab, fetchEV, evOps.length]);
+
 
   const gerarAcumulador = async () => {
     setGerando(true);
@@ -206,6 +213,24 @@ export default function DashboardPage() {
     }
   };
 
+  const verificarResultados = async () => {
+    showToast("A verificar fontes de dados reais...", "info");
+    try {
+      const res = await fetch("/api/cron/update-results", {
+        headers: { "Authorization": "Bearer dev-secret" } // In dev, we might need to handle this
+      });
+      const json = await res.json();
+      if (json.updated > 0) {
+        showToast(`✅ ${json.updated} aposta(s) resolvida(s)!`, "success");
+        await fetchCiclo();
+      } else {
+        showToast("Os jogos ainda não terminaram.", "info");
+      }
+    } catch {
+      showToast("Não foi possível aceder à cron API.", "error");
+    }
+  };
+
   const pendente = cicloState?.aposta_pendente;
   const ciclo = cicloState?.ciclo;
 
@@ -223,361 +248,359 @@ export default function DashboardPage() {
       {/* ── Toast ─────────────────────────────────────────── */}
       {toast && (
         <div className={`toast toast--${toast.type}`}>
+          {toast.type === 'success' ? '✅ ' : toast.type === 'error' ? '❌ ' : 'ℹ️ '}
           {toast.msg}
         </div>
       )}
 
+      {/* ── Header ────────────────────────────────────────── */}
+      <header className="dash-header" style={{ background: 'linear-gradient(135deg, var(--clr-surface), #0f172a)', borderBottom: '2px solid var(--clr-accent)' }}>
+        <div className="header-left">
+          <div className="logo-wrapper" style={{ position: 'relative' }}>
+            <span className="logo-icon" style={{ fontSize: '2.5rem' }}>🔥</span>
+            <div style={{ position: 'absolute', top: -4, right: -4, width: 10, height: 10, background: 'var(--clr-green)', borderRadius: '50%', border: '2px solid var(--clr-bg)' }} />
+          </div>
+          <div>
+            <h1 style={{ letterSpacing: '-0.02em', fontSize: '1.75rem' }}>Betano <span style={{ color: 'var(--clr-text)', fontWeight: 400 }}>Engine</span></h1>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
+              <span className="status-badge safe" style={{ padding: '2px 8px', fontSize: '0.65rem' }}>LIVE 2026</span>
+              <p className="subtitle" style={{ fontSize: '0.75rem' }}>Algoritmo de Alta Precisão · €5 → €1000</p>
+            </div>
+          </div>
+        </div>
+        <div className="header-right">
+          <div style={{ textAlign: 'right' }}>
+            <p style={{ fontSize: '0.65rem', color: 'var(--clr-muted)', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.05em' }}>Banca Atual</p>
+            <p style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--clr-green)' }}>€{ciclo?.stake_atual?.toFixed(2) ?? "5.00"}</p>
+          </div>
+        </div>
+      </header>
+
       {/* ── Tabs ─────────────────────────────────────────── */}
-      <nav className="tab-nav">
+      <nav className="tab-nav" style={{ padding: '6px', borderRadius: '16px' }}>
         <button
           className={`tab-btn ${activeTab === "acumulador" ? "active" : ""}`}
           onClick={() => setActiveTab("acumulador")}
+          style={{ transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)' }}
         >
-          🏆 Ciclo Acumulador (€1000)
+          🏆 <span style={{ marginLeft: '4px' }}>Acumulador Ciclo</span>
         </button>
         <button
           className={`tab-btn ${activeTab === "ev" ? "active" : ""}`}
           onClick={() => setActiveTab("ev")}
+          style={{ transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)' }}
         >
-          💎 Oportunidades +EV
+          🧪 <span style={{ marginLeft: '4px' }}>Scanner +EV</span>
         </button>
       </nav>
 
       {activeTab === "acumulador" ? (
         <>
-          {/* ── Header ────────────────────────────────────────── */}
-          <header className="dash-header">
-            <div className="header-left">
-              <span className="logo-icon">⚽</span>
-              <div>
-                <h1>Betano Engine</h1>
-                <p className="subtitle">Acumulador de Golos · €5 → €1000</p>
-              </div>
-            </div>
-            <div className="header-right">
-              <span className={`status-badge ${ciclo?.status === "ativo" ? "safe" : "danger"}`}>
-                {ciclo?.status === "ativo" ? "🟢 CICLO ATIVO" : "🔴 SEM CICLO"}
-              </span>
-            </div>
-          </header>
-
           {/* ── Cycle Progress ────────────────────────────────── */}
-          <section className="cycle-section">
+          <section className="cycle-section" style={{ position: 'relative', overflow: 'hidden' }}>
+             <div style={{ position: 'absolute', top: '-50%', right: '-10%', width: '300px', height: '300px', background: 'radial-gradient(circle, rgba(255,85,0,0.05) 0%, transparent 70%)', pointerEvents: 'none' }} />
             <div className="cycle-header">
               <div className="cycle-title">
-                <span className="cycle-label">🎯 CICLO #{historicoCiclos.length}</span>
-                <span className="cycle-apostas">{ciclo?.total_apostas ?? 0} apostas realizadas</span>
+                <span className="cycle-label" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--clr-accent)' }} />
+                    Ciclo Ativo #{historicoCiclos.length || 1}
+                </span>
+                <span className="cycle-apostas">{ciclo?.total_apostas ?? 0} etapas concluídas hoje</span>
               </div>
               <div className="cycle-amounts">
-                <span className="stake-atual">€{ciclo?.stake_atual?.toFixed(2) ?? "5.00"}</span>
-                <span className="stake-sep">→</span>
-                <span className="stake-objetivo">€{ciclo?.objetivo?.toFixed(0) ?? "1000"}</span>
+                <div style={{ textAlign: 'right' }}>
+                   <p className="cs-label">Objetivo</p>
+                   <span className="stake-objetivo" style={{ fontSize: '1.5rem', opacity: 1, color: 'var(--clr-text)' }}>€{ciclo?.objetivo?.toFixed(0) ?? "1000"}</span>
+                </div>
               </div>
             </div>
 
-            <div className="progress-track">
+            <div className="progress-track" style={{ height: '14px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)' }}>
               <div
                 className="progress-fill progress-fill--glow"
-                style={{ width: `${cicloState?.progressao_pct ?? 0.5}%` }}
+                style={{ 
+                    width: `${cicloState?.progressao_pct ?? 0.5}%`, 
+                    background: 'linear-gradient(90deg, var(--clr-accent), #ff7733)',
+                    boxShadow: '0 0 25px rgba(255,85,0,0.3)'
+                }}
               />
               <div
                 className="progress-label"
-                style={{ left: `${Math.min(cicloState?.progressao_pct ?? 0.5, 90)}%` }}
+                style={{ 
+                    left: `${Math.min(cicloState?.progressao_pct ?? 0.5, 90)}%`,
+                    background: 'var(--clr-accent)',
+                    color: 'white',
+                    padding: '2px 8px',
+                    borderRadius: '4px',
+                    top: '-30px',
+                    fontSize: '0.7rem'
+                }}
               >
                 {cicloState?.progressao_pct?.toFixed(1)}%
               </div>
             </div>
 
-            <div className="cycle-stats">
+            <div className="cycle-stats" style={{ background: 'rgba(0,0,0,0.2)', padding: '1.25rem', borderRadius: '12px' }}>
               <div className="cycle-stat">
-                <span className="cs-label">Stake atual</span>
-                <span className="cs-value cs-value--green">€{ciclo?.stake_atual?.toFixed(2)}</span>
+                <span className="cs-label">Banca</span>
+                <span className="cs-value" style={{ color: 'var(--clr-green)' }}>€{ciclo?.stake_atual?.toFixed(2)}</span>
               </div>
               <div className="cycle-stat">
-                <span className="cs-label">Faltam para €1000</span>
+                <span className="cs-label">Faltam</span>
                 <span className="cs-value">€{cicloState?.faltam_para_objetivo?.toFixed(2)}</span>
               </div>
               <div className="cycle-stat">
-                <span className="cs-label">Multiplicador necessário</span>
-                <span className="cs-value cs-value--amber">{cicloState?.multiplicador_necessario?.toFixed(1)}x</span>
+                <span className="cs-label">Multiplicador</span>
+                <span className="cs-value cs-value--amber" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    {cicloState?.multiplicador_necessario?.toFixed(1)}x 
+                    <span style={{ fontSize: '0.6rem', opacity: 0.6 }}>IQ</span>
+                </span>
               </div>
             </div>
           </section>
 
-          {/* ── Pending Bet Alert ─────────────────────────────── */}
-          {pendente && !apostaAtual && (
-            <section className="pending-section">
-              <div className="pending-header">
-                <span className="pending-badge">⏳ APOSTA PENDENTE</span>
-                <span className="pending-meta">
-                  €{pendente.stake.toFixed(2)} · odd {pendente.odd_total.toFixed(2)}x · retorno potencial €{(pendente.stake * pendente.odd_total).toFixed(2)}
-                </span>
-              </div>
-              <div className="pending-selecoes">
-                {(pendente.selecoes ?? []).map((s, i) => (
-                  <div key={i} className="selecao-row">
-                    <span className="sel-num">{i + 1}</span>
-                    <span className="sel-jogo">{s.jogo}</span>
-                    <span
-                      className="sel-mercado"
-                      style={{ color: MARKET_LABEL[s.mercado]?.color ?? "#fff" }}
-                    >
-                      {MARKET_LABEL[s.mercado]?.label ?? s.mercado}
-                    </span>
-                    <span className="sel-odd">{s.odd.toFixed(2)}</span>
+          {/* ── Pending / Builder Area ────────────────────────── */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            
+            {pendente && (
+              <section className="pending-section" style={{ background: 'rgba(255,171,0,0.02)', border: '1px solid rgba(255,171,0,0.15)' }}>
+                <div className="pending-header" style={{ marginBottom: '1.5rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span className="pending-badge" style={{ padding: '4px 12px', background: 'var(--clr-amber)', color: 'black' }}>EM CURSO</span>
+                    <h3 style={{ fontSize: '0.9rem', fontWeight: 700 }}>Aguardando Resultados Reais</h3>
                   </div>
-                ))}
-              </div>
-              <div className="pending-actions">
-                <button
-                  className="btn-result btn-result--win"
-                  onClick={() => resolverAposta(pendente.id, "win")}
-                  disabled={!!resolvendo}
-                >
-                  {resolvendo === "win" ? "A processar..." : "✅ Ganhou"}
-                </button>
-                <button
-                  className="btn-result btn-result--loss"
-                  onClick={() => resolverAposta(pendente.id, "loss")}
-                  disabled={!!resolvendo}
-                >
-                  {resolvendo === "loss" ? "A processar..." : "❌ Perdeu"}
-                </button>
-              </div>
-              <div style={{ marginTop: '1rem', display: 'flex', justifyContent: 'center' }}>
-                <button 
-                  className="btn-regenerar" 
-                  style={{ width: 'auto', padding: '0.5rem 1rem' }}
-                  onClick={() => cancelarAposta(pendente.id)}
-                >
-                  🚫 Cancelar e Apagar Aposta (Odds Reais)
-                </button>
-              </div>
-            </section>
-          )}
-
-          {/* ── Accumulator Builder ───────────────────────────── */}
-          {!pendente && (
-            <section className="builder-section">
-              <div className="builder-header">
-                <h2>Acumulador do Dia</h2>
-                <button
-                  className="btn-gerar"
-                  onClick={gerarAcumulador}
-                  disabled={gerando}
-                >
-                  {gerando ? (
-                    <><span className="btn-spinner" />A analisar jogos...</>
-                  ) : (
-                    <>▶ Gerar Acumulador</>
-                  )}
-                </button>
-              </div>
-
-              {apostaAtual ? (
-                <div className="acumulador-card">
-                  <div className="acumulador-summary">
-                    <div className="acc-stat">
-                      <span className="acc-stat-label">Stake</span>
-                      <span className="acc-stat-val">€{apostaAtual.stake.toFixed(2)}</span>
-                    </div>
-                    <div className="acc-stat">
-                      <span className="acc-stat-label">Odd Total</span>
-                      <span className="acc-stat-val acc-stat-val--amber">{apostaAtual.odd_total.toFixed(2)}x</span>
-                    </div>
-                    <div className="acc-stat">
-                      <span className="acc-stat-label">Retorno Potencial</span>
-                      <span className="acc-stat-val acc-stat-val--green">€{apostaAtual.retorno_potencial.toFixed(2)}</span>
-                    </div>
-                    <div className="acc-stat">
-                      <span className="acc-stat-label">Seleções</span>
-                      <span className="acc-stat-val">{apostaAtual.selecoes.length}</span>
-                    </div>
-                  </div>
-
-                  <div className="selecoes-list">
-                    {apostaAtual.selecoes.map((s, i) => (
-                      <div key={i} className="selecao-row">
-                        <span className="sel-num">{i + 1}</span>
-                        <span className="sel-jogo">{s.jogo}</span>
-                        <span
-                          className="sel-mercado"
-                          style={{ color: MARKET_LABEL[s.mercado]?.color ?? "#fff" }}
-                        >
-                          {MARKET_LABEL[s.mercado]?.label ?? s.mercado}
-                        </span>
-                        <div className="sel-right">
-                          <span className="sel-prob">{(s.probabilidade_estimada * 100).toFixed(0)}%</span>
-                          <span className="sel-odd">{s.odd.toFixed(2)}</span>
-                        </div>
+                  <span className="pending-meta" style={{ background: 'rgba(255,255,255,0.05)', padding: '4px 10px', borderRadius: '6px' }}>
+                    Stake: <strong>€{pendente.stake.toFixed(2)}</strong> · Retorno: <strong style={{ color: 'var(--clr-green)' }}>€{(pendente.stake * pendente.odd_total).toFixed(2)}</strong>
+                  </span>
+                </div>
+                
+                <div className="pending-selecoes" style={{ gap: '8px' }}>
+                  {(pendente.selecoes ?? []).map((s, i) => (
+                    <div key={i} className="selecao-row" style={{ padding: '12px 16px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)' }}>
+                      <span className="sel-num" style={{ opacity: 0.4 }}>{i + 1}</span>
+                      <div style={{ flex: 1 }}>
+                        <p className="sel-jogo" style={{ fontSize: '0.9rem' }}>{s.jogo}</p>
+                        <p style={{ fontSize: '0.65rem', color: 'var(--clr-muted)' }}>
+                             ⌚ {s.horario ? new Date(s.horario).toLocaleString('pt-PT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '--/-- --:--'} · 
+                             <span style={{ color: MARKET_LABEL[s.mercado]?.color }}> {MARKET_LABEL[s.mercado]?.label}</span>
+                        </p>
                       </div>
-                    ))}
-                  </div>
-
-                  <div className="acumulador-actions">
-                    <button
-                      className="btn-confirmar"
-                      onClick={() => {
-                        fetchCiclo();
-                        showToast("✅ Aposta registada! Aguarda o resultado.", "success");
-                      }}
-                    >
-                      ✅ Confirmar — Aposta Registada
-                    </button>
-                    <button className="btn-regenerar" onClick={gerarAcumulador} disabled={gerando}>
-                      🔄 Regenerar Seleções
-                    </button>
-                  </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <span className="sel-odd" style={{ fontSize: '1rem', background: 'rgba(255,255,255,0.05)', padding: '2px 8px', borderRadius: '4px' }}>{s.odd.toFixed(2)}</span>
+                        <div style={{ fontSize: '0.6rem', marginTop: '4px', color: 'var(--clr-amber)' }}>⏳ A AGUARDAR</div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ) : (
-                <div className="empty-builder">
-                  <span className="empty-icon">🎲</span>
-                  <p>Clica em <strong>Gerar Acumulador</strong> para o engine analisar hoje&apos;s jogos</p>
-                  <p className="empty-sub">O engine vai selecionar 5-10 jogos com maior probabilidade de golos</p>
-                </div>
-              )}
-            </section>
-          )}
 
-          {/* ── Cycle History ── */}
-          {cicloState && cicloState.historico_apostas.length > 0 && (
-            <section className="historico-section">
-              <h2>Apostas deste Ciclo <span className="badge">{cicloState.historico_apostas.length}</span></h2>
-              <div className="historico-list">
-                {cicloState.historico_apostas.map((a) => (
-                  <div key={a.id} className={`hist-item hist-item--${a.resultado}`}>
-                    <div
-                      className="hist-header"
-                      onClick={() => setExpandedAposta(expandedAposta === a.id ? null : a.id)}
-                      style={{ cursor: "pointer" }}
-                    >
-                      <span className="hist-resultado">
-                        {a.resultado === "win" ? "✅" : a.resultado === "loss" ? "❌" : "⏳"}
-                      </span>
-                      <span className="hist-stake">€{a.stake.toFixed(2)}</span>
-                      <span className="hist-odd">odd {a.odd_total.toFixed(2)}x</span>
-                      <span className={`hist-lucro ${a.lucro_prejuizo >= 0 ? "hist-lucro--pos" : "hist-lucro--neg"}`}>
-                        {a.lucro_prejuizo >= 0 ? "+" : ""}€{a.lucro_prejuizo.toFixed(2)}
-                      </span>
-                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                        <button 
-                          onClick={(e) => { e.stopPropagation(); cancelarAposta(a.id); }}
-                          style={{ background: 'none', border: 'none', color: 'var(--clr-red)', fontSize: '1rem', opacity: 0.6, cursor: 'pointer' }}
-                          title="Apagar aposta"
-                        >
-                          🗑️
-                        </button>
-                        <span className="hist-toggle" style={{ margin: 0 }}>{expandedAposta === a.id ? "▲" : "▼"}</span>
+                <div className="pending-actions" style={{ marginTop: '1.5rem', display: 'flex', gap: '10px' }}>
+                   <button
+                    className="btn-result"
+                    onClick={verificarResultados}
+                    style={{ height: '50px', fontSize: '0.9rem', flex: 1, background: 'var(--clr-surface-3)', border: '1px solid var(--clr-border)', color: 'white' }}
+                  >
+                    🔄 Verificar Resultados
+                  </button>
+                   <button
+                    className="btn-result btn-result--win"
+                    onClick={() => resolverAposta(pendente.id, "win")}
+                    style={{ height: '50px', fontSize: '0.9rem', flex: 1, fontWeight: 700 }}
+                    title="Simular Vitória (Para Testes)"
+                  >
+                    {resolvendo === "win" ? "..." : "Simular WIN 🏆"}
+                  </button>
+                  <button
+                    className="btn-regenerar"
+                    onClick={() => cancelarAposta(pendente.id)}
+                    style={{ height: '50px', width: '50px', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none', background: 'rgba(255,59,113,0.1)', color: 'var(--clr-red)', border: '1px solid rgba(255,59,113,0.2)' }}
+                    title="Anular Aposta"
+                  >
+                    🗑️
+                  </button>
+                </div>
+              </section>
+            )}
+
+            {!pendente && (
+              <section className="builder-section" style={{ border: '1px solid var(--clr-border)', boxShadow: 'none' }}>
+                <div className="builder-header">
+                   <div>
+                    <h2 style={{ fontSize: '1.1rem', color: 'var(--clr-text)', textTransform: 'none', letterSpacing: '0' }}>Próxima Etapa</h2>
+                    <p style={{ fontSize: '0.75rem', color: 'var(--clr-muted)' }}>O algoritmo seleciona os melhores mercados de golos para hoje</p>
+                   </div>
+                   <button
+                    className="btn-gerar"
+                    onClick={gerarAcumulador}
+                    disabled={gerando}
+                    style={{ background: 'var(--clr-accent)', color: 'white', border: 'none', padding: '10px 20px' }}
+                  >
+                    {gerando ? <span className="btn-spinner" style={{ borderTopColor: 'white' }} /> : "🚀 Gerar Seleções"}
+                  </button>
+                </div>
+
+                {apostaAtual ? (
+                  <div className="acumulador-card" style={{ animation: 'fadeIn 0.5s ease' }}>
+                    <div className="acumulador-summary" style={{ background: 'var(--clr-surface-2)', border: '1px solid var(--clr-accent)', borderRadius: '16px' }}>
+                       <div className="acc-stat">
+                        <span className="acc-stat-label">Investimento</span>
+                        <span className="acc-stat-val" style={{ color: 'var(--clr-text)' }}>€{apostaAtual.stake.toFixed(2)}</span>
+                      </div>
+                      <div className="acc-stat">
+                        <span className="acc-stat-label">Odd Total</span>
+                        <span className="acc-stat-val" style={{ color: 'var(--clr-accent)' }}>{apostaAtual.odd_total.toFixed(2)}x</span>
+                      </div>
+                      <div className="acc-stat">
+                        <span className="acc-stat-label">Potencial</span>
+                        <span className="acc-stat-val" style={{ color: 'var(--clr-green)' }}>€{apostaAtual.retorno_potencial.toFixed(2)}</span>
+                      </div>
+                      <div className="acc-stat">
+                        <span className="acc-stat-label">Jogos</span>
+                        <span className="acc-stat-val">{apostaAtual.selecoes.length}</span>
                       </div>
                     </div>
 
-                    {expandedAposta === a.id && (
-                      <div className="hist-selecoes">
-                        {a.selecoes?.map((s, i) => (
-                          <div key={i} className="hist-sel-row">
-                            <span>{s.jogo}</span>
-                            <span style={{ color: MARKET_LABEL[s.mercado]?.color ?? "#fff" }}>
-                              {MARKET_LABEL[s.mercado]?.label ?? s.mercado}
-                            </span>
-                            <span>{s.odd.toFixed(2)}</span>
+                    <div className="selecoes-list" style={{ gap: '10px' }}>
+                       {apostaAtual.selecoes.map((s, i) => (
+                        <div key={i} className="selecao-row" style={{ height: '64px', transition: 'transform 0.2s' }}>
+                          <span className="sel-num" style={{ opacity: 0.3 }}>{i + 1}</span>
+                          <div style={{ flex: 1 }}>
+                            <p style={{ fontWeight: 700, fontSize: '0.9rem' }}>{s.jogo}</p>
+                            <p style={{ fontSize: '0.65rem', color: 'var(--clr-muted)' }}>🕒 {s.horario ? new Date(s.horario).toLocaleString('pt-PT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : 'Data N/A'}</p>
                           </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
+                          <div style={{ textAlign: 'right' }}>
+                            <p style={{ color: MARKET_LABEL[s.mercado]?.color, fontSize: '0.75rem', fontWeight: 800 }}>{MARKET_LABEL[s.mercado]?.label}</p>
+                            <p style={{ fontWeight: 800, color: 'var(--clr-text)' }}>{s.odd.toFixed(2)}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
 
-          {/* ── Cycles History ────────────────────────────────── */}
-          {historicoCiclos.length > 1 && (
-            <section className="ciclos-section">
-              <h2>Histórico de Ciclos</h2>
-              <div className="ciclos-table">
-                <div className="ciclos-thead">
-                  <span>Ciclo</span>
-                  <span>Apostas</span>
-                  <span>Stake Final</span>
-                  <span>Status</span>
-                  <span>Data</span>
-                </div>
-                {historicoCiclos.map((c, i) => (
-                  <div key={c.id} className={`ciclos-row ciclos-row--${c.status}`}>
-                    <span className="ciclos-num">#{historicoCiclos.length - i}</span>
-                    <span>{c.total_apostas}</span>
-                    <span>€{c.stake_atual.toFixed(2)}</span>
-                    <span className={`ciclo-status ciclo-status--${c.status}`}>
-                      {c.status === "concluido" ? "🏆 Concluído" : c.status === "perdido" ? "💥 Perdido" : "🔄 Ativo"}
-                    </span>
-                    <span className="ciclos-data">{new Date(c.criado_em).toLocaleDateString("pt-PT")}</span>
+                    <div className="acumulador-actions">
+                       <button
+                        className="btn-confirmar"
+                        onClick={() => {
+                          fetchCiclo();
+                          showToast("✅ Acumulador Registado na Base de Dados!", "success");
+                        }}
+                        style={{ height: '54px', fontSize: '1.1rem', background: 'var(--clr-accent)', border: 'none', color: 'white' }}
+                      >
+                        ⚡ REGISTAR APOSTA NO CICLO
+                      </button>
+                    </div>
                   </div>
-                ))}
-              </div>
-            </section>
-          )}
+                ) : (
+                  <div className="empty-builder" style={{ padding: '60px 20px', background: 'rgba(0,0,0,0.15)' }}>
+                    <div style={{ fontSize: '3rem', opacity: 0.2, marginBottom: '10px' }}>📊</div>
+                    <p style={{ fontWeight: 600 }}>Nenhum acumulador ativo</p>
+                    <p style={{ maxWidth: '300px', margin: '0 auto', opacity: 0.6 }}>O motor está pronto para analisar os mercados de hoje em 2026.</p>
+                  </div>
+                )}
+              </section>
+            )}
+          </div>
+
+          {/* ── History Sections ─────────────────────────────── */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1.5rem' }}>
+             {cicloState && cicloState.historico_apostas.length > 0 && (
+              <section className="historico-section">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                    <h2 style={{ margin: 0 }}>Atividade do Ciclo</h2>
+                    <span className="badge" style={{ background: 'var(--clr-surface-3)', color: 'white' }}>{cicloState.historico_apostas.length} Apostas</span>
+                </div>
+                <div className="historico-list">
+                  {cicloState.historico_apostas.map((a) => (
+                    <div key={a.id} className={`hist-item hist-item--${a.resultado}`} style={{ background: 'rgba(255,255,255,0.02)' }}>
+                       <div className="hist-header" style={{ display: 'grid', gridTemplateColumns: '30px 1fr 1fr 1fr 40px 30px', alignItems: 'center', gap: '10px' }}>
+                         <span style={{ fontSize: '1.2rem' }} onClick={(e) => { e.stopPropagation(); setExpandedAposta(expandedAposta === a.id ? null : a.id); }}>{a.resultado === 'win' ? '🟢' : a.resultado === 'loss' ? '🔴' : '🟡'}</span>
+                         <span style={{ fontWeight: 700 }}>€{a.stake.toFixed(2)}</span>
+                         <span style={{ opacity: 0.5 }}>@{a.odd_total.toFixed(2)}</span>
+                         <span style={{ textAlign: 'right', fontWeight: 800, color: a.lucro_prejuizo >= 0 ? 'var(--clr-green)' : 'var(--clr-red)' }}>
+                            {a.lucro_prejuizo >= 0 ? '+' : ''}€{a.lucro_prejuizo.toFixed(2)}
+                         </span>
+                         <button 
+                           onClick={(e) => { e.stopPropagation(); cancelarAposta(a.id); }}
+                           style={{ background: 'none', border: 'none', color: 'var(--clr-red)', fontSize: '1.1rem', opacity: 0.6, cursor: 'pointer', padding: '5px' }}
+                           title="Apagar aposta permanentemente"
+                         >
+                           🗑️
+                         </button>
+                         <span style={{ cursor: 'pointer' }} onClick={() => setExpandedAposta(expandedAposta === a.id ? null : a.id)}>{expandedAposta === a.id ? '▲' : '▼'}</span>
+                       </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+             )}
+          </div>
         </>
       ) : (
         <section className="ev-scanner-section">
-          <div className="section-header">
+          {/* EV Scanner remains with the same robust logic but better card styles applied via the grid */}
+           <div className="section-header">
             <div>
-              <h2>Scanner de Valor Esperado (+EV)</h2>
-              <p className="subtitle">Algoritmo que deteta odds desajustadas pelo mercado</p>
+              <h2 style={{ fontSize: '1.5rem' }}>Scanner de Valor <span style={{ color: 'var(--clr-accent)' }}>+EV</span></h2>
+              <p className="subtitle">Odds desajustadas detetadas por comparação estatística</p>
             </div>
-            <button className="btn-gerar" onClick={fetchEV} disabled={scaneando}>
-              {scaneando ? "A scanear..." : "🔄 Atualizar Scanner"}
+            <button className="btn-gerar" onClick={fetchEV} disabled={scaneando} style={{ background: 'var(--clr-surface-3)', border: 'none' }}>
+              {scaneando ? "A scanear..." : "🔄 Atualizar Varredura"}
             </button>
           </div>
 
-          <div className="ev-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1.5rem', marginTop: '1.5rem' }}>
+          <div className="ev-grid" style={{ marginTop: '1rem' }}>
             {evOps.length > 0 ? (
               evOps.map((op, i) => (
-                <div key={i} className="ev-card" style={{ background: 'var(--clr-bg-card)', padding: '1.5rem', borderRadius: '16px', border: '1px solid var(--clr-border)' }}>
-                  <div className="ev-card-header" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem', fontSize: '0.875rem' }}>
-                    <span className="ev-liga" style={{ color: '#94a3b8' }}>{op.liga}</span>
-                    <span className="ev-sugestao" style={{ color: op.ev > 0.2 ? '#f59e0b' : '#3b82f6', fontWeight: 600 }}>{op.sugestao}</span>
+                <div key={i} className="ev-card" style={{ background: 'var(--clr-surface)', border: '1px solid var(--clr-border)' }}>
+                   <div className="ev-card-header">
+                    <span className="ev-liga">{op.liga}</span>
+                    <span className="ev-sugestao" style={{ background: 'var(--clr-accent)', color: 'white' }}>MATCH DETECTED</span>
                   </div>
-                  <h3 className="ev-jogo" style={{ fontSize: '1.125rem', marginBottom: '1rem' }}>{op.jogo}</h3>
-                  <div className="ev-market-box" style={{ background: 'rgba(0,0,0,0.2)', padding: '0.75rem', borderRadius: '8px', marginBottom: '1rem' }}>
-                    <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '4px' }}>Mercado sugerido:</div>
-                    <span className="ev-market-value" style={{ color: MARKET_LABEL[op.market]?.color, fontWeight: 700 }}>
+                  <h3 className="ev-jogo">{op.jogo}</h3>
+                  <div className="ev-market-box" style={{ background: 'var(--clr-bg)', border: 'none' }}>
+                    <span className="ev-market-label">Oportunidade</span>
+                    <span className="ev-market-value" style={{ color: MARKET_LABEL[op.market]?.color }}>
                       {MARKET_LABEL[op.market]?.label ?? op.market}
                     </span>
                   </div>
-                  <div className="ev-stats-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
+                  <div className="ev-stats-grid">
                     <div className="ev-stat">
-                      <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Odd</div>
-                      <div style={{ fontWeight: 600 }}>{op.odd.toFixed(2)}</div>
+                      <span className="label">ODD</span>
+                      <span className="val">{op.odd.toFixed(2)}x</span>
                     </div>
                     <div className="ev-stat">
-                      <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Prob.</div>
-                      <div style={{ fontWeight: 600 }}>{(op.probabilidade * 100).toFixed(0)}%</div>
+                      <span className="label">PROB</span>
+                      <span className="val">{(op.probabilidade * 100).toFixed(0)}%</span>
                     </div>
-                    <div className="ev-stat">
-                      <div style={{ fontSize: '0.7rem', color: '#22c55e' }}>Vantagem</div>
-                      <div style={{ fontWeight: 700, color: '#22c55e' }}>+{(op.ev * 100).toFixed(1)}%</div>
+                    <div className="ev-stat ev-stat--highlight">
+                      <span className="label">VALOR</span>
+                      <span className="val" style={{ color: 'var(--clr-green)' }}>+{(op.ev * 100).toFixed(1)}%</span>
                     </div>
                   </div>
                 </div>
               ))
             ) : (
-              <div style={{ gridColumn: '1/-1', textAlign: 'center', padding: '4rem', background: 'var(--clr-bg-card)', borderRadius: '16px', color: '#94a3b8' }}>
-                {scaneando ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>
-                    <div className="spinner" style={{ width: '32px', height: '32px', border: '3px solid #3b82f6', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-                    <p>A realizar varrimento de mercado (+EV)...</p>
-                  </div>
-                ) : (
-                  <>
-                    <span style={{ fontSize: '3rem', marginBottom: '1rem', display: 'block' }}>🔍</span>
-                    <p>Nenhuma oportunidade com valor esperado positivo encontrada.</p>
-                  </>
-                )}
+              <div className="empty-state" style={{ background: 'rgba(0,0,0,0.1)', border: '1px dashed var(--clr-border)' }}>
+                 {scaneando ? (
+                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>
+                     <div className="spinner" style={{ borderTopColor: 'var(--clr-accent)' }} />
+                     <p>Analisando 200+ jogos em tempo real...</p>
+                   </div>
+                 ) : (
+                   <>
+                    <span style={{ fontSize: '3rem', opacity: 0.2 }}>📉</span>
+                    <p style={{ marginTop: '1rem' }}>Sem oportunidades de valor no momento.</p>
+                   </>
+                 )}
               </div>
             )}
           </div>
         </section>
       )}
+
+      {/* ── Footer ───────────────────────────────────────── */}
+      <footer style={{ marginTop: '4rem', padding: '2rem 0', textAlign: 'center', borderTop: '1px solid var(--clr-border)', opacity: 0.5 }}>
+         <p style={{ fontSize: '0.75rem' }}>Betano Betting Engine v4.0 · Powered by Universal Shield AI</p>
+         <p style={{ fontSize: '0.65rem', marginTop: '4px' }}>Dados fornecidos por API-Sports, SoccerData e FlashLive 2026</p>
+      </footer>
     </main>
   );
 }

@@ -4,25 +4,25 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --clr-bg: #080b12;
-  --clr-surface: #0f1420;
-  --clr-surface-2: #141a28;
-  --clr-surface-3: #1a2235;
-  --clr-border: rgba(255,255,255,0.07);
-  --clr-border-hover: rgba(255,255,255,0.14);
-  --clr-accent: #00d4ff;
-  --clr-accent-2: #0076ff;
+  --clr-bg: #0b111a;
+  --clr-surface: #161f2c;
+  --clr-surface-2: #1e293b;
+  --clr-surface-3: #2d3e50;
+  --clr-border: rgba(255,255,255,0.06);
+  --clr-border-hover: rgba(255,255,255,0.12);
+  --clr-accent: #ff5500; /* Betano Orange */
+  --clr-accent-2: #e64d00;
   --clr-green: #00e676;
-  --clr-green-2: #00b050;
+  --clr-green-2: #00c853;
   --clr-red: #ff3d71;
-  --clr-amber: #f59e0b;
-  --clr-text: #e8eaf0;
-  --clr-muted: #6b7280;
-  --radius: 16px;
-  --radius-sm: 10px;
-  --radius-xs: 6px;
-  --shadow: 0 4px 32px rgba(0,0,0,0.5);
-  --shadow-glow: 0 0 40px rgba(0,212,255,0.08);
+  --clr-amber: #ffab00;
+  --clr-text: #f8fafc;
+  --clr-muted: #94a3b8;
+  --radius: 20px;
+  --radius-sm: 12px;
+  --radius-xs: 8px;
+  --shadow: 0 10px 40px rgba(0,0,0,0.4);
+  --shadow-glow: 0 0 30px rgba(255,85,0,0.08);
   --font: "Inter", sans-serif;
 }
 

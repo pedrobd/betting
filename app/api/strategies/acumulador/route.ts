@@ -9,6 +9,7 @@ import { AcumuladorEngine } from "@/lib/core/strategies";
 export const dynamic = "force-dynamic";
 
 export async function POST() {
+  console.log("DEBUG: POST /api/strategies/acumulador hit at " + new Date().toISOString());
   try {
     const engine = new AcumuladorEngine();
     const aposta = await engine.gerarAcumulador();
