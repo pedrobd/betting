@@ -5,11 +5,14 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { EVEngine } from "@/lib/core/strategies";
+import { FlashscoreBot } from "@/lib/core/flashscore-bot";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   try {
+    await FlashscoreBot.syncLiveGames();
+    
     const engine = new EVEngine();
     const opportunities = await engine.scanOpportunities();
 

@@ -82,6 +82,17 @@ export interface AcumuladorSelecao {
   odd: number;
   probabilidade_estimada: number; // 0-1
   horario?: string;
+  avg_goals?: number;
+  avg_goals_home?: number;
+  avg_goals_away?: number;
+  form?: string;
+  form_home?: string;
+  form_away?: string;
+  h2h_un55_pct?: number;
+  home_pos?: number;
+  away_pos?: number;
+  home_record?: string; // e.g. "5-2-1"
+  away_record?: string; // e.g. "1-2-5"
 }
 
 export interface AcumuladorAposta {
@@ -158,7 +169,7 @@ export interface ApiFixture {
   };
   goals: { home: number | null; away: number | null };
   score: { halftime: { home: number | null; away: number | null } };
-  league: { id: number; name: string; country: string; logo: string; flag: string; season: number; round: string };
+  league?: { id: number; name: string; country: string; logo: string; flag: string; season: number; round: string };
 }
 
 export interface ApiFixtureStatistics {

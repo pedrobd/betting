@@ -11,6 +11,9 @@ interface Selecao {
   odd: number;
   probabilidade_estimada: number;
   horario?: string;
+  avg_goals?: number;
+  form?: string;
+  h2h_un55_pct?: number;
 }
 
 interface ApostaGerada {
@@ -85,21 +88,64 @@ const MARKET_LABEL: Record<string, { label: string; color: string }> = {
 // ── Dashboard ──────────────────────────────────────────────
 
 export default function DashboardPage() {
-  const [activeTab, setActiveTab] = useState<"acumulador" | "ev">("acumulador");
+  const [activeTab, setActiveTab] = useState<"acumulador" | "ev" | "radar">("acumulador");
   const [cicloState, setCicloState] = useState<CicloState | null>(null);
   const [historicoCiclos, setHistoricoCiclos] = useState<CicloAcumulador[]>([]);
   const [apostaAtual, setApostaAtual] = useState<ApostaGerada | null>(null);
   const [evOps, setEvOps] = useState<EVOpportunity[]>([]);
+  const [radarOps, setRadarOps] = useState<EVOpportunity[]>([]);
   const [loading, setLoading] = useState(true);
   const [gerando, setGerando] = useState(false);
   const [scaneando, setScaneando] = useState(false);
+  const [radarLoading, setRadarLoading] = useState(false);
   const [resolvendo, setResolvendo] = useState<"win" | "loss" | null>(null);
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" | "info" } | null>(null);
   const [expandedAposta, setExpandedAposta] = useState<string | null>(null);
+  const [excludedMatchIds, setExcludedMatchIds] = useState<number[]>([]);
+
+  // Load exclusions
+  useEffect(() => {
+    const saved = localStorage.getItem("betting_excluded_matches");
+    if (saved) setExcludedMatchIds(JSON.parse(saved));
+  }, []);
+
+  const toggleExcludeMatch = (id: number) => {
+    const next = excludedMatchIds.includes(id) 
+      ? excludedMatchIds.filter(x => x !== id) 
+      : [...excludedMatchIds, id];
+    setExcludedMatchIds(next);
+    localStorage.setItem("betting_excluded_matches", JSON.stringify(next));
+    showToast(excludedMatchIds.includes(id) ? "Jogo reativado!" : "Jogo desativado.", "info");
+  };
 
   const showToast = (msg: string, type: "success" | "error" | "info" = "info") => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 4000);
+  };
+
+  const getSafetyColor = (avg: number) => {
+    if (avg < 2.5) return { bg: 'rgba(74, 222, 128, 0.1)', text: '#4ade80' }; // Verde
+    if (avg < 3.5) return { bg: 'rgba(251, 191, 36, 0.1)', text: '#fbbf24' }; // Ambar
+    return { bg: 'rgba(248, 113, 113, 0.1)', text: '#f87171' }; // Vermelho
+  };
+
+  const formatTime = (dateStr?: string) => {
+    if (!dateStr) return "--/-- --:--";
+    let d = new Date(dateStr);
+
+    // Fallback for HH:mm format (legacy/scraped strings without date)
+    if (isNaN(d.getTime()) && dateStr.includes(":") && dateStr.length <= 5) {
+      const today = new Date().toISOString().split("T")[0];
+      d = new Date(`${today}T${dateStr}:00Z`);
+    }
+
+    if (isNaN(d.getTime())) return "--/-- --:--";
+    return d.toLocaleString("pt-PT", {
+      day: "2-digit",
+      month: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   };
 
   const fetchCiclo = useCallback(async () => {
@@ -127,14 +173,30 @@ export default function DashboardPage() {
       const res = await fetch("/api/strategies/ev-scanner");
       const json = await res.json();
       if (json.success) {
-        setEvOps(json.data);
+        // Filter out excluded on client side
+        setEvOps(json.data.filter((op: any) => !excludedMatchIds.includes(op.fixture_id)));
       }
     } catch {
       showToast("Erro ao scanear EV.", "error");
     } finally {
       setScaneando(false);
     }
-  }, []);
+  }, [excludedMatchIds]);
+
+  const fetchRadar = useCallback(async () => {
+    setRadarLoading(true);
+    try {
+      const res = await fetch("/api/strategies/radar-favoritos");
+      const json = await res.json();
+      if (json.success) {
+        setRadarOps(json.data.filter((op: any) => !excludedMatchIds.includes(op.fixture_id)));
+      }
+    } catch {
+      showToast("Erro ao carregar Radar.", "error");
+    } finally {
+      setRadarLoading(false);
+    }
+  }, [excludedMatchIds]);
 
   useEffect(() => {
     fetchCiclo();
@@ -150,14 +212,21 @@ export default function DashboardPage() {
     if (activeTab === "ev" && evOps.length === 0) {
       fetchEV();
     }
-  }, [activeTab, fetchEV, evOps.length]);
+    if (activeTab === "radar" && radarOps.length === 0) {
+      fetchRadar();
+    }
+  }, [activeTab, fetchEV, fetchRadar, evOps.length, radarOps.length]);
 
 
   const gerarAcumulador = async () => {
     setGerando(true);
     setApostaAtual(null);
     try {
-      const res = await fetch("/api/strategies/acumulador", { method: "POST" });
+      const res = await fetch("/api/strategies/acumulador", { 
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ excludedIds: excludedMatchIds })
+      });
       const json = await res.json();
       if (json.success) {
         setApostaAtual(json.data);
@@ -231,6 +300,23 @@ export default function DashboardPage() {
     }
   };
 
+  const reiniciarCiclo = async () => {
+    if (!confirm("Tem a certeza que deseja reiniciar o ciclo para €5.00? O progresso atual será arquivado.")) return;
+    try {
+      const res = await fetch("/api/acumulador/reset", { method: "POST" });
+      const json = await res.json();
+      if (json.success) {
+        showToast(json.message, "success");
+        setApostaAtual(null);
+        await fetchCiclo();
+      } else {
+        showToast(json.error ?? "Erro ao reiniciar ciclo.", "error");
+      }
+    } catch {
+      showToast("Erro ao conectar com o servidor.", "error");
+    }
+  };
+
   const pendente = cicloState?.aposta_pendente;
   const ciclo = cicloState?.ciclo;
 
@@ -292,6 +378,13 @@ export default function DashboardPage() {
         >
           🧪 <span style={{ marginLeft: '4px' }}>Scanner +EV</span>
         </button>
+        <button
+          className={`tab-btn ${activeTab === "radar" ? "active" : ""}`}
+          onClick={() => setActiveTab("radar")}
+          style={{ transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)' }}
+        >
+          🏠 <span style={{ marginLeft: '4px' }}>Radar Favoritos</span>
+        </button>
       </nav>
 
       {activeTab === "acumulador" ? (
@@ -307,7 +400,14 @@ export default function DashboardPage() {
                 </span>
                 <span className="cycle-apostas">{ciclo?.total_apostas ?? 0} etapas concluídas hoje</span>
               </div>
-              <div className="cycle-amounts">
+              <div className="cycle-amounts" style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                <button 
+                  onClick={reiniciarCiclo} 
+                  style={{ background: 'rgba(255,100,0,0.1)', border: '1px solid rgba(255,100,0,0.2)', color: 'var(--clr-amber)', fontSize: '0.7rem', padding: '6px 12px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600 }}
+                  title="Reiniciar Ciclo para €5.00"
+                >
+                  🔄 Reiniciar
+                </button>
                 <div style={{ textAlign: 'right' }}>
                    <p className="cs-label">Objetivo</p>
                    <span className="stake-objetivo" style={{ fontSize: '1.5rem', opacity: 1, color: 'var(--clr-text)' }}>€{ciclo?.objetivo?.toFixed(0) ?? "1000"}</span>
@@ -379,10 +479,26 @@ export default function DashboardPage() {
                     <div key={i} className="selecao-row" style={{ padding: '12px 16px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)' }}>
                       <span className="sel-num" style={{ opacity: 0.4 }}>{i + 1}</span>
                       <div style={{ flex: 1 }}>
-                        <p className="sel-jogo" style={{ fontSize: '0.9rem' }}>{s.jogo}</p>
-                        <p style={{ fontSize: '0.65rem', color: 'var(--clr-muted)' }}>
-                             ⌚ {s.horario ? new Date(s.horario).toLocaleString('pt-PT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '--/-- --:--'} · 
-                             <span style={{ color: MARKET_LABEL[s.mercado]?.color }}> {MARKET_LABEL[s.mercado]?.label}</span>
+                        <p className="sel-jogo" style={{ fontSize: '0.9rem' }}>
+                          {s.jogo}
+                        </p>
+                        <p style={{ fontSize: '0.65rem', color: 'var(--clr-muted)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                             <span>⌚ {formatTime(s.horario)}</span>
+                             <span style={{ color: MARKET_LABEL[s.mercado]?.color }}>• {MARKET_LABEL[s.mercado]?.label}</span>
+                             {s.avg_goals && (
+                               <span style={{ 
+                                 background: getSafetyColor(s.avg_goals).bg, 
+                                 color: getSafetyColor(s.avg_goals).text,
+                                 padding: '1px 8px', 
+                                 borderRadius: '12px',
+                                 fontSize: '0.6rem',
+                                 fontWeight: 700,
+                                 border: `1px solid ${getSafetyColor(s.avg_goals).text}22`
+                               }}>
+                                 📊 {s.avg_goals.toFixed(1)} avg
+                               </span>
+                             )}
+                             {s.form && <span style={{ opacity: 0.6 }}>[{s.form}]</span>}
                         </p>
                       </div>
                       <div style={{ textAlign: 'right' }}>
@@ -465,9 +581,32 @@ export default function DashboardPage() {
                           <span className="sel-num" style={{ opacity: 0.3 }}>{i + 1}</span>
                           <div style={{ flex: 1 }}>
                             <p style={{ fontWeight: 700, fontSize: '0.9rem' }}>{s.jogo}</p>
-                            <p style={{ fontSize: '0.65rem', color: 'var(--clr-muted)' }}>🕒 {s.horario ? new Date(s.horario).toLocaleString('pt-PT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : 'Data N/A'}</p>
+                            <p style={{ fontSize: '0.65rem', color: 'var(--clr-muted)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span>🕒 {formatTime(s.horario)}</span>
+                                {s.avg_goals && (
+                                  <span style={{ 
+                                    background: getSafetyColor(s.avg_goals).bg, 
+                                    color: getSafetyColor(s.avg_goals).text,
+                                    padding: '1px 8px', 
+                                    borderRadius: '12px',
+                                    fontSize: '0.6rem',
+                                    fontWeight: 700,
+                                    border: `1px solid ${getSafetyColor(s.avg_goals).text}22`
+                                  }}>
+                                    📊 {s.avg_goals.toFixed(1)} avg
+                                  </span>
+                                )}
+                                {s.form && <span style={{ color: 'var(--clr-accent)', opacity: 0.8 }}>{s.form}</span>}
+                            </p>
                           </div>
-                          <div style={{ textAlign: 'right' }}>
+                          <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
+                            <button 
+                              onClick={(e) => { e.stopPropagation(); toggleExcludeMatch(s.fixture_id); }}
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.65rem', opacity: 0.4, color: 'var(--clr-red)', marginBottom: '4px' }}
+                              title="Remover este jogo permanentemente"
+                            >
+                              🚫 Desativar
+                            </button>
                             <p style={{ color: MARKET_LABEL[s.mercado]?.color, fontSize: '0.75rem', fontWeight: 800 }}>{MARKET_LABEL[s.mercado]?.label}</p>
                             <p style={{ fontWeight: 800, color: 'var(--clr-text)' }}>{s.odd.toFixed(2)}</p>
                           </div>
@@ -534,7 +673,9 @@ export default function DashboardPage() {
           </div>
         </>
       ) : (
-        <section className="ev-scanner-section">
+        <>
+          {activeTab === "ev" && (
+            <section className="ev-scanner-section">
           {/* EV Scanner remains with the same robust logic but better card styles applied via the grid */}
            <div className="section-header">
             <div>
@@ -552,7 +693,12 @@ export default function DashboardPage() {
                 <div key={i} className="ev-card" style={{ background: 'var(--clr-surface)', border: '1px solid var(--clr-border)' }}>
                    <div className="ev-card-header">
                     <span className="ev-liga">{op.liga}</span>
-                    <span className="ev-sugestao" style={{ background: 'var(--clr-accent)', color: 'white' }}>MATCH DETECTED</span>
+                    <button 
+                      onClick={() => toggleExcludeMatch(op.fixture_id)}
+                      style={{ background: 'none', border: 'none', color: 'var(--clr-red)', fontSize: '0.7rem', opacity: 0.5, cursor: 'pointer' }}
+                    >
+                      🚫 Desativar
+                    </button>
                   </div>
                   <h3 className="ev-jogo">{op.jogo}</h3>
                   <div className="ev-market-box" style={{ background: 'var(--clr-bg)', border: 'none' }}>
@@ -592,6 +738,109 @@ export default function DashboardPage() {
                  )}
               </div>
             )}
+          </div>
+        </section>
+      )}
+
+      {activeTab === "radar" && (
+        <section className="radar-section">
+          <div className="section-header">
+            <div>
+              <h2 style={{ fontSize: '1.5rem' }}>🏠 Radar <span style={{ color: 'var(--clr-green)' }}>Favoritos</span></h2>
+              <p className="subtitle">Superioridade absoluta em casa (Tabela + Forma)</p>
+            </div>
+            <button className="btn-gerar" onClick={fetchRadar} disabled={radarLoading} style={{ background: '#1e293b', border: 'none' }}>
+              {radarLoading ? "Analizando..." : "🔄 Atualizar Radar"}
+            </button>
+          </div>
+
+          <div className="ev-grid" style={{ marginTop: '1.5rem' }}>
+            {radarOps.length > 0 ? (
+              radarOps.map((op, i) => (
+                <div key={i} className="ev-card" style={{ background: 'var(--clr-surface)', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
+                  <div className="ev-card-header">
+                    <span className="ev-liga">{op.liga}</span>
+                    <span className="ev-sugestao" style={{ background: 'rgba(16, 185, 129, 0.1)', color: 'var(--clr-green)', border: '1px solid rgba(16, 185, 129, 0.2)' }}>FAVORITO EM CASA</span>
+                  </div>
+                  <h3 className="ev-jogo" style={{ margin: '0.8rem 0' }}>{op.jogo}</h3>
+                  
+                  {/* Win Probability Bar */}
+                  <div style={{ marginTop: '1.2rem', padding: '1.2rem', background: 'rgba(0,0,0,0.2)', borderRadius: '12px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.8rem', fontWeight: 600 }}>
+                      <span style={{ opacity: 0.6 }}>Probabilidade de Ganho</span>
+                      <span style={{ color: 'var(--clr-green)', fontSize: '1.1rem' }}>{(op.probabilidade * 100).toFixed(0)}%</span>
+                    </div>
+                    <div style={{ height: '10px', background: 'rgba(255,255,255,0.05)', borderRadius: '5px', overflow: 'hidden' }}>
+                      <div style={{ 
+                        height: '100%', 
+                        width: `${op.probabilidade * 100}%`, 
+                        background: `linear-gradient(90deg, #3b82f6 0%, #10b981 100%)`,
+                        boxShadow: '0 0 10px rgba(16, 185, 129, 0.3)',
+                        transition: 'width 1s ease-out'
+                      }} />
+                    </div>
+                  </div>
+
+                  <div className="ev-stats-grid" style={{ marginTop: '1.2rem' }}>
+                    <div className="ev-stat">
+                      <span className="label">ODD ({op.market})</span>
+                      <span className="val">{op.odd.toFixed(2)}x</span>
+                    </div>
+                    <div className="ev-stat">
+                       <button 
+                        onClick={() => toggleExcludeMatch(op.fixture_id)}
+                        style={{ background: 'none', border: 'none', color: 'var(--clr-red)', fontSize: '0.65rem', opacity: 0.4, cursor: 'pointer' }}
+                      >
+                        🚫 Ocultar
+                      </button>
+                    </div>
+                    <div className="ev-stat ev-stat--highlight" style={{ background: 'rgba(16, 185, 129, 0.1)' }}>
+                      <span className="label">POTENCIAL</span>
+                      <span className="val" style={{ color: 'var(--clr-green)' }}>+{(op.ev * 100).toFixed(1)}%</span>
+                    </div>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="empty-state" style={{ background: 'rgba(0,0,0,0.1)', border: '1px dashed var(--clr-green)', gridColumn: '1/-1', textAlign: 'center', padding: '4rem 2rem' }}>
+                {radarLoading ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>
+                    <div className="spinner" style={{ borderTopColor: 'var(--clr-green)' }} />
+                    <p>Calculando probabilidades...</p>
+                  </div>
+                ) : (
+                  <>
+                    <span style={{ fontSize: '3rem', opacity: 0.2 }}>🏠</span>
+                    <p style={{ marginTop: '1rem' }}>Radar limpo. Sem favoritos claros com odds de valor.</p>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+        </>
+      )}
+
+      {/* ── Hidden Games Manager ────────────────────────── */}
+      {excludedMatchIds.length > 0 && (
+        <section style={{ marginTop: '2rem', background: 'rgba(0,0,0,0.2)', padding: '1.5rem', borderRadius: '16px', border: '1px dashed rgba(255,255,255,0.1)' }}>
+          <h3 style={{ fontSize: '1rem', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span>🔒 Jogos Desativados</span>
+            <span style={{ fontSize: '0.7rem', opacity: 0.5, fontWeight: 400 }}>({excludedMatchIds.length})</span>
+          </h3>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+            {excludedMatchIds.map(id => (
+              <div key={id} style={{ background: 'var(--clr-surface-2)', padding: '4px 12px', borderRadius: '20px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '10px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                <span>ID: {id}</span>
+                <button 
+                  onClick={() => toggleExcludeMatch(id)}
+                  style={{ background: 'none', border: 'none', color: 'var(--clr-green)', cursor: 'pointer', fontWeight: 700 }}
+                >
+                  ➕ Reativar
+                </button>
+              </div>
+            ))}
           </div>
         </section>
       )}

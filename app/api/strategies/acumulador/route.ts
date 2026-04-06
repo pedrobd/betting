@@ -5,12 +5,15 @@
 
 import { NextResponse } from "next/server";
 import { AcumuladorEngine } from "@/lib/core/strategies";
+import { FlashscoreBot } from "@/lib/core/flashscore-bot";
 
 export const dynamic = "force-dynamic";
 
 export async function POST() {
   console.log("DEBUG: POST /api/strategies/acumulador hit at " + new Date().toISOString());
   try {
+    await FlashscoreBot.syncLiveGames();
+
     const engine = new AcumuladorEngine();
     const aposta = await engine.gerarAcumulador();
 

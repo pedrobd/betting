@@ -10,7 +10,6 @@ import {
   getApostasPendentesAcumulador,
   resetDailyCounters,
 } from "@/lib/core/database";
-import { getFixtureResult } from "@/lib/core/api-football";
 import { AcumuladorEngine } from "@/lib/core/strategies";
 import { universalShield } from "@/lib/core/universal-api";
 

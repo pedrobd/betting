@@ -14,6 +14,17 @@ export interface FlashscoreGame {
     "under_5.5"?: number;
     "under_4.5"?: number;
   };
+  avg_goals?: number;
+  avg_goals_home?: number;
+  avg_goals_away?: number;
+  form?: string;
+  form_home?: string;
+  form_away?: string;
+  h2h_un55_pct?: number;
+  home_pos?: number;
+  away_pos?: number;
+  home_record?: string;
+  away_record?: string;
 }
 
 const CACHE_PATH = path.join(process.cwd(), "data", "betano_odds.json"); // Reusing this for now to avoid breaking dashboard
