@@ -131,6 +131,18 @@ export default function DashboardPage() {
 
   const formatTime = (dateStr?: string) => {
     if (!dateStr) return "--/-- --:--";
+    
+    // Se for apenas um número (minuto do jogo ao vivo), mostra como "X'"
+    if (/^\d+'?$/.test(dateStr.trim())) {
+      return `LIVE: ${dateStr.trim()}'`;
+    }
+
+    // Se for um status conhecido de tempo real
+    const statusLower = dateStr.toLowerCase();
+    if (statusLower.includes("ao vivo") || statusLower.includes("live") || statusLower.includes("intervalo")) {
+      return dateStr.toUpperCase();
+    }
+
     let d = new Date(dateStr);
 
     // Fallback for HH:mm format (legacy/scraped strings without date)
@@ -139,7 +151,24 @@ export default function DashboardPage() {
       d = new Date(`${today}T${dateStr}:00Z`);
     }
 
-    if (isNaN(d.getTime())) return "--/-- --:--";
+    // Handle Flashscore date format (e.g., "08.04. 23:00")
+    if (isNaN(d.getTime()) && dateStr.includes(".") && dateStr.includes(":")) {
+      const parts = dateStr.split(" ");
+      if (parts.length >= 2) {
+        const dateParts = parts[0].split(".");
+        const timeParts = parts[1].split(":");
+        if (dateParts.length >= 2 && timeParts.length >= 2) {
+          const year = new Date().getFullYear();
+          d = new Date(year, parseInt(dateParts[1]) - 1, parseInt(dateParts[0]), parseInt(timeParts[0]), parseInt(timeParts[1]));
+        }
+      }
+    }
+
+    if (isNaN(d.getTime())) {
+      // Se não for uma data válida mas tiver conteúdo, retorna o conteúdo original (como status de jogo)
+      return dateStr;
+    }
+
     return d.toLocaleString("pt-PT", {
       day: "2-digit",
       month: "2-digit",
@@ -147,6 +176,12 @@ export default function DashboardPage() {
       minute: "2-digit",
     });
   };
+
+  const [currentTime, setCurrentTime] = useState(new Date());
+  useEffect(() => {
+    const t = setInterval(() => setCurrentTime(new Date()), 1000);
+    return () => clearInterval(t);
+  }, []);
 
   const fetchCiclo = useCallback(async () => {
     try {
@@ -354,7 +389,14 @@ export default function DashboardPage() {
             </div>
           </div>
         </div>
-        <div className="header-right">
+        <div className="header-right" style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
+          <div style={{ textAlign: 'right', borderRight: '1px solid rgba(255,255,255,0.1)', paddingRight: '20px' }}>
+            <p style={{ fontSize: '0.65rem', color: 'var(--clr-muted)', textTransform: 'uppercase', fontWeight: 700 }}>Horário Local</p>
+            <p style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--clr-text)' }}>
+              {currentTime.toLocaleTimeString("pt-PT", { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+            </p>
+            <p style={{ fontSize: '0.6rem', color: 'var(--clr-muted)' }}>{currentTime.toLocaleDateString("pt-PT")}</p>
+          </div>
           <div style={{ textAlign: 'right' }}>
             <p style={{ fontSize: '0.65rem', color: 'var(--clr-muted)', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.05em' }}>Banca Atual</p>
             <p style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--clr-green)' }}>€{ciclo?.stake_atual?.toFixed(2) ?? "5.00"}</p>

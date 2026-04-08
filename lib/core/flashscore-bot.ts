@@ -40,12 +40,10 @@ export class FlashscoreBot {
          const rows = document.querySelectorAll('.sportName.soccer > div');
 
          rows.forEach((row: any) => {
-            if (row.classList.contains('headerLeague__wrapper')) {
-                const titleEl = row.querySelector('.headerLeague__title-text');
-                if (titleEl && titleEl.textContent) {
-                    currentLeague = titleEl.textContent.trim();
-                }
-            } else if (row.classList.contains('event__match')) {
+            // Tenta identificar se é um cabeçalho de liga (contém título) ou um jogo
+            if (row.querySelector('.headerLeague__title')) {
+                currentLeague = row.textContent?.trim() || "Outros";
+            } else if (row.classList.contains('event__match') || (row.id && row.id.startsWith('g_1_'))) {
                 const homeEl = row.querySelector('.event__homeParticipant');
                 const awayEl = row.querySelector('.event__awayParticipant');
                 const timeEl = row.querySelector('.event__time') || row.querySelector('.event__stage');
@@ -76,44 +74,45 @@ export class FlashscoreBot {
 
       console.log(`[FlashscoreBot] ✅ Encontrados ${games.length} jogos no total da página principal.`);
 
-      // Whitelist EXATA com os nomes de Liga do Flashscore (como aparecem no JSON)
-      // Whitelist de Ligas Top (case insensitive). Os nomes reais baseados no crawler do Flashscore.
-      const LIGAS_TOP = [
-        "laliga",                    // 🇪🇸 Espanha Div 1
-        "serie a",                   // 🇮🇹 Itália Div 1
-        "premier league",            // 🏴󠁧󠁢󠁥󠁮󠁧󠁿 Inglaterra Div 1
-        "bundesliga",                // 🇩🇪 Alemanha Div 1
-        "ligue 1",                   // 🇫🇷 França Div 1
-        "liga portugal betclic",     // 🇵🇹 Portugal Div 1
-        "eredivisie",                // 🇳🇱 Holanda Div 1
-        "championship",              // 🏴󠁧󠁢󠁥󠁮󠁧󠁿 Inglaterra Div 2
-        "laliga2",                   // 🇪🇸 Espanha Div 2
-        "serie b",                   // 🇮🇹 Itália Div 2
-        "süper lig",                 // 🇹🇷 Turquia Div 1
-        "super lig",                 // 🇹🇷 Turquia Div 1 (variante sem acento)
-        "liga portugal 2",           // 🇵🇹 Portugal Div 2
-        "liga portugal betclic 2",   // 🇵🇹 Portugal Div 2 (variante)
-        "primeira liga",             // 🇵🇹/Outros (nome genérico Flashscore)
-        "série a",                   // 🇮🇹 Itália/Brasil Div 1 (com acento)
-        "série a betano",            // 🇧🇷 Brasileirão
-        "liga 1",                    // 🇫🇷 França Div 1 ou outras
-        "liga 2"                     // Liga 2
+      const TOP_COUNTRIES = ["portugal", "espanha", "inglaterra", "alemanha", "italia", "itália", "frança", "franca", "holanda", "turquia", "europa", "brasil", "américa do sul"];
+      const TOP_LEAGUES = [
+        "premier league", "championship", "league one", "league two",
+        "laliga", "segunda división", 
+        "serie a", "serie b", "série a", "série b", "brasileirão",
+        "bundesliga", "2. bundesliga",
+        "ligue 1", "ligue 2",
+        "liga portugal", "liga portugal 2",
+        "eredivisie", "super lig", "süper lig",
+        "liga dos campeões", "liga europa", "liga conferência", "champions league",
+        "taça de portugal", "fa cup", "copa del rey", "coppa italia", "dfb pokal", "coupe de france", 
+        "copa do brasil", "libertadores", "sul-americana", "sudamericana"
       ];
 
       // Filtrar: só jogos FUTUROS ou AO VIVO de Ligas de Topo
       const jogosValidos = games.filter(g => {
         const tempoNorm = (g.time || "").toLowerCase();
         const ligaNorm = (g.league || "").toLowerCase().trim();
+
         // Excluir terminados
         if (tempoNorm.includes("terminado") || tempoNorm.includes("encerrado") || tempoNorm === "fim") return false;
-        // Só aceitar ligas que existam na LIGAS_TOP, lidando com traduções exatas
-        return LIGAS_TOP.some(l => ligaNorm === l || ligaNorm.startsWith(l));
+        
+        // Critério: Deve conter um país de topo europeu E uma das competições alvo
+        const hasCountry = TOP_COUNTRIES.some(c => ligaNorm.includes(c));
+        const hasLeague = TOP_LEAGUES.some(l => ligaNorm.includes(l));
+        
+        return hasCountry && hasLeague;
       });
+
+      if (jogosValidos.length === 0 && games.length > 0) {
+          const leaguesFound = [...new Set(games.map(g => g.league))];
+          console.log(`[FlashscoreBot] 🔍 Ligas encontradas (amostra): ${leaguesFound.slice(0, 5).join(", ")}...`);
+      }
 
       console.log(`[FlashscoreBot] 🎯 Após filtro de qualidade: ${jogosValidos.length} jogos elegíveis das Ligas Top.`);
 
       if (jogosValidos.length === 0) {
-        console.log(`[FlashscoreBot] ⚠️  Nenhum jogo das Ligas Top encontrado agora. Guardando cache vazio.`);
+        console.log(`[FlashscoreBot] ⚠️  Nenhum jogo das Ligas Top encontrado agora. Atualizando cache com lista vazia.`);
+        await saveLiveOdds([]);
         return;
       }
 

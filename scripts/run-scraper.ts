@@ -1,3 +1,5 @@
+import dotenv from 'dotenv';
+dotenv.config({ path: '.env.local' });
 import { FlashscoreBot } from "../lib/core/flashscore-bot";
 
 async function run() {
