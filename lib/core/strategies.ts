@@ -83,7 +83,8 @@ export class AcumuladorEngine {
     }
 
     if (eligible.length === 0) {
-        throw new Error("Não foram encontrados jogos no Flashscore. Tente novamente mais tarde.");
+        console.warn("[Strategy] ⚠️ Não foram encontrados jogos no Flashscore para análise.");
+        return null;
     }
     
     const candidates: { fixture_id: number; jogo: string; mercado_recomendado: BetMarket; odd_estimada: number; confianca: number; [key: string]: any }[] = [];
@@ -94,21 +95,35 @@ export class AcumuladorEngine {
         const oddsData = await universalShield.getOddsForUniversalFixture(event);
         
         // Priority Market: Under 5.5 (Max Safety Strategy)
-        const market: BetMarket = "under_5.5";
-        const realOdd = oddsData[market];
+        let market: BetMarket = "under_5.5";
+        let realOdd = oddsData[market];
         
-        if (!realOdd) continue;
+        // Fallback: If 5.5 is missing, try 4.5
+        if (!realOdd || realOdd <= 1.0) {
+            market = "under_4.5";
+            realOdd = oddsData[market];
+        }
+        
+        if (!realOdd || realOdd <= 1.0) {
+            console.log(`[Strategy] ⚠️ SKIP: Missing real odds (5.5 or 4.5) for ${fixtureName}`);
+            continue;
+        }
 
         // --- ADVANCED 2026 METRICS FILTER ---
-        let confianca = 0.99; // Baseline for Under 5.5
+        let confianca = 0.99; // Baseline for Safe Under markets
+        
+        if (market === "under_4.5") {
+            confianca *= 0.95; // Slightly less confidence for tighter line
+        }
 
         // 1. Avg Goals Filter (Strict)
         // Yellow threshold is 2.5, Red is 3.5 according to UI.
-        // We penalize anything above 2.5 to ensure they drop below 85% confidence if other metrics aren't perfect.
-        if (event.avg_goals && event.avg_goals > 3.5) {
-            console.log(`[Strategy] 🚫 SKIP: Risky Avg Goals (${event.avg_goals}) for ${fixtureName}`);
-            continue; 
-        }
+        const maxGoals = market === "under_5.5" ? 3.5 : 2.5;
+        // We penalize anything above maxGoals to ensure they drop below 85% confidence if other metrics aren't perfect.
+        if (event.avg_goals && event.avg_goals > maxGoals) {
+            console.log(`[Strategy] 🚫 SKIP: Risky Avg Goals (${event.avg_goals}) for ${fixtureName} (Market: ${market})`);
+            continue;
+        } 
         if (event.avg_goals && event.avg_goals > 2.5) {
             confianca *= 0.85; // This will likely push it below the 0.85 threshold immediately
         }

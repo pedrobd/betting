@@ -18,12 +18,20 @@ export async function POST(req: NextRequest) {
     const engine = new AcumuladorEngine();
     const aposta = await engine.gerarAcumulador(excludedIds);
 
+    if (!aposta) {
+      return NextResponse.json({
+        success: false,
+        error: "Nenhum jogo qualificado encontrado no momento.",
+      }, { status: 200 }); // Retornamos 200 com success: false para o UI lidar amigavelmente
+    }
+
     return NextResponse.json({
       success: true,
       data: aposta,
     });
   } catch (error) {
     const msg = error instanceof Error ? error.message : "Erro interno";
-    return NextResponse.json({ success: false, error: msg }, { status: 500 });
+    console.error("[Acumulador API Error]", error);
+    return NextResponse.json({ success: false, error: msg }, { status: 200 }); // Fallback amigável
   }
 }

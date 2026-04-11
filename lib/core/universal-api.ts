@@ -46,52 +46,57 @@ export class UniversalAPIClient {
     const today = getEffectiveDateString();
 
     return games.map((g, idx) => {
-      let startTime = g.time || new Date().toISOString();
-      const today = getEffectiveDateString();
-      const currentYear = new Date().getFullYear();
-      
-      // Format 1: HH:mm (prepend today's date)
-      if (g.time && g.time.includes(":") && g.time.length <= 5) {
-        startTime = `${today}T${g.time}:00Z`;
-      } 
-      // Format 2: DD.MM. HH:mm (project to 2026)
-      else if (g.time && g.time.includes(".") && g.time.includes(":")) {
-        const parts = g.time.split(" ");
-        if (parts.length >= 2) {
-          const dateParts = parts[0].split(".");
-          const timeParts = parts[1].split(":");
-          if (dateParts.length >= 2 && timeParts.length >= 2) {
-             const d = new Date(currentYear, parseInt(dateParts[1]) - 1, parseInt(dateParts[0]), parseInt(timeParts[0]), parseInt(timeParts[1]));
-             if (!isNaN(d.getTime())) {
-               // Ensure we are in 2026 if requested
-               if (d.getFullYear() < 2026) d.setFullYear(2026);
-               startTime = d.toISOString();
-             }
+      try {
+        let startTime = g.time || new Date().toISOString();
+        const today = getEffectiveDateString();
+        const currentYear = new Date().getFullYear();
+        
+        // Format 1: HH:mm (prepend today's date)
+        if (g.time && g.time.includes(":") && g.time.length <= 5) {
+          startTime = `${today}T${g.time}:00Z`;
+        } 
+        // Format 2: DD.MM. HH:mm (project to 2026)
+        else if (g.time && g.time.includes(".") && g.time.includes(":")) {
+          const parts = g.time.split(" ");
+          if (parts.length >= 2) {
+            const dateParts = parts[0].split(".");
+            const timeParts = parts[1].split(":");
+            if (dateParts.length >= 2 && timeParts.length >= 2) {
+               const d = new Date(currentYear, parseInt(dateParts[1]) - 1, parseInt(dateParts[0]), parseInt(timeParts[0]), parseInt(timeParts[1]));
+               if (!isNaN(d.getTime())) {
+                 // Ensure we are in 2026 if requested
+                 if (d.getFullYear() < 2026) d.setFullYear(2026);
+                 startTime = d.toISOString();
+               }
+            }
           }
         }
-      }
 
-      return {
-        id: g.mid ? `scraped-${g.mid}` : `scraped-${idx}`,
-        homeTeam: g.home,
-        awayTeam: g.away,
-        startTime,
-        league: g.league || "Flashscore",
-        source: "flashscore",
-        avg_goals: g.avg_goals,
-        avg_goals_home: g.avg_goals_home,
-        avg_goals_away: g.avg_goals_away,
-        form: g.form,
-        form_home: g.form_home,
-        form_away: g.form_away,
-        h2h_un55_pct: g.h2h_un55_pct,
-        home_pos: g.home_pos,
-        away_pos: g.away_pos,
-        home_record: g.home_record,
-        away_record: g.away_record,
-        fixture_mid: g.mid
-      };
-    });
+        return {
+          id: g.mid ? `scraped-${g.mid}` : `scraped-${idx}`,
+          homeTeam: g.home,
+          awayTeam: g.away,
+          startTime,
+          league: g.league || "Flashscore",
+          source: "flashscore",
+          avg_goals: g.avg_goals,
+          avg_goals_home: g.avg_goals_home,
+          avg_goals_away: g.avg_goals_away,
+          form: g.form,
+          form_home: g.form_home,
+          form_away: g.form_away,
+          h2h_un55_pct: g.h2h_un55_pct,
+          home_pos: g.home_pos,
+          away_pos: g.away_pos,
+          home_record: g.home_record,
+          away_record: g.away_record,
+          fixture_mid: g.mid
+        };
+      } catch (e) {
+        console.warn(`[Shield] ⚠️ Error mapping game ${g.home} vs ${g.away}:`, e);
+        return null;
+      }
+    }).filter((g): g is UniversalFixture => g !== null);
   }
 
   /**
@@ -99,11 +104,12 @@ export class UniversalAPIClient {
    */
   async getOddsForUniversalFixture(fixture: UniversalFixture): Promise<Record<string, number>> {
     const scrapedMatch = flashscoreScanner.findGame(fixture.homeTeam, fixture.awayTeam);
-    if (scrapedMatch) {
+    if (scrapedMatch && scrapedMatch.odds) {
         console.log(`[Shield] 🔥 FLASHSCORE DATA FOUND: ${fixture.homeTeam} vs ${fixture.awayTeam}`);
         return scrapedMatch.odds as any;
     }
     
+    console.warn(`[Shield] ⚠️ ODDS NOT FOUND in Cache for: ${fixture.homeTeam} vs ${fixture.awayTeam}`);
     return {};
   }
 

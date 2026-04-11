@@ -289,22 +289,46 @@ body {
 /* ── Seleção Row (shared) ─────────────────────────────── */
 .selecao-row {
   display: grid;
-  grid-template-columns: 1.5rem 1fr auto auto;
+  grid-template-columns: 2rem 1fr auto;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.625rem 0.875rem;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
   background: var(--clr-surface-2);
-  border-radius: var(--radius-xs);
-  font-size: 0.83rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.9rem;
   border: 1px solid var(--clr-border);
-  transition: border-color 0.15s;
+  transition: all 0.2s ease;
+  overflow: hidden; /* Garante que nada sai da barra */
 }
 .selecao-row:hover { border-color: var(--clr-border-hover); }
 .sel-num { font-size: 0.7rem; color: var(--clr-muted); text-align: center; }
-.sel-jogo { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sel-mercado { font-size: 0.75rem; font-weight: 600; white-space: nowrap; }
-.sel-odd { font-size: 0.83rem; font-weight: 700; color: var(--clr-text); white-space: nowrap; }
-.sel-right { display: flex; align-items: center; gap: 0.5rem; }
+.sel-jogo { 
+  font-weight: 600; 
+  overflow: hidden; 
+  text-overflow: ellipsis; 
+  white-space: nowrap;
+  min-width: 0; /* Essencial para o ellipsis funcionar em grid */
+}
+.sel-mercado { 
+  font-size: 0.75rem; 
+  font-weight: 700; 
+  white-space: nowrap;
+  color: var(--clr-accent);
+}
+.sel-odd { 
+  font-size: 1rem; 
+  font-weight: 800; 
+  color: var(--clr-text); 
+  white-space: nowrap;
+  min-width: 45px;
+  text-align: right;
+}
+.sel-right { 
+  display: flex; 
+  flex-direction: column;
+  align-items: flex-end; 
+  gap: 0.25rem; 
+}
 .sel-prob { font-size: 0.68rem; color: var(--clr-muted); }
 
 /* ── Builder Section ──────────────────────────────────── */

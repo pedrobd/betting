@@ -605,55 +605,49 @@ export default function DashboardPage() {
                   </span>
                 </div>
                 
-                <div className="pending-selecoes" style={{ gap: '8px' }}>
-                  {(pendente.selecoes ?? []).map((s, i) => (
-                    <div key={i} className="selecao-row" style={{ padding: '12px 16px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)' }}>
-                      <span className="sel-num" style={{ opacity: 0.4 }}>{i + 1}</span>
-                      <div style={{ flex: 1 }}>
-                        <p className="sel-jogo" style={{ fontSize: '0.9rem' }}>
-                          {s.jogo}
-                        </p>
-                        <p style={{ fontSize: '0.65rem', color: 'var(--clr-muted)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                             <span>⌚ {formatTime(s.horario)}</span>
-                             <span style={{ color: MARKET_LABEL[s.mercado]?.color }}>• {MARKET_LABEL[s.mercado]?.label}</span>
-                             {s.avg_goals && (
-                               <span style={{ 
-                                 background: getSafetyColor(s.avg_goals).bg, 
-                                 color: getSafetyColor(s.avg_goals).text,
-                                 padding: '1px 8px', 
-                                 borderRadius: '12px',
-                                 fontSize: '0.6rem',
-                                 fontWeight: 700,
-                                 border: `1px solid ${getSafetyColor(s.avg_goals).text}22`
-                               }}>
-                                 📊 {s.avg_goals.toFixed(1)} avg
-                               </span>
-                             )}
-                             {s.form && <span style={{ opacity: 0.6 }}>[{s.form}]</span>}
-                        </p>
-                      </div>
-                      <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <div>
-                          <span className="sel-odd" style={{ fontSize: '1rem', background: 'rgba(255,255,255,0.05)', padding: '2px 8px', borderRadius: '4px' }}>{s.odd.toFixed(2)}</span>
-                          <div style={{ fontSize: '0.6rem', marginTop: '4px', color: 'var(--clr-amber)' }}>⏳ A AGUARDAR</div>
+                  <div className="pending-selecoes" style={{ gap: '8px' }}>
+                    {(pendente.selecoes ?? []).map((s, i) => (
+                      <div key={i} className="selecao-row">
+                        <span className="sel-num">{i + 1}</span>
+                        <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                          <span className="sel-jogo">{s.jogo}</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.65rem', color: 'var(--clr-muted)' }}>
+                            <span>⌚ {formatTime(s.horario)}</span>
+                            <span style={{ color: MARKET_LABEL[s.mercado]?.color }}>• {MARKET_LABEL[s.mercado]?.label}</span>
+                            {s.avg_goals && (
+                              <span style={{ 
+                                background: getSafetyColor(s.avg_goals).bg, 
+                                color: getSafetyColor(s.avg_goals).text,
+                                padding: '1px 8px', 
+                                borderRadius: '12px',
+                                fontWeight: 700,
+                                border: `1px solid ${getSafetyColor(s.avg_goals).text}22`
+                              }}>
+                                📊 {s.avg_goals.toFixed(1)} avg
+                              </span>
+                            )}
+                          </div>
                         </div>
-                        <button 
-                          onClick={async () => {
-                            if (confirm(`Excluir "${s.jogo}" e gerar nova aposta?`)) {
-                              setExcludedMatchIds(prev => [...prev, s.fixture_id]);
-                              await cancelarAposta(pendente.id);
-                              setTimeout(() => gerarAcumulador(), 500);
-                            }
-                          }}
-                          style={{ background: 'rgba(255,255,255,0.05)', border: 'none', color: 'var(--clr-red)', cursor: 'pointer', padding: '10px', borderRadius: '8px', fontSize: '1.2rem' }}
-                          title="Eliminar este jogo e gerar novo"
-                        >
-                          🚫
-                        </button>
+                        
+                        <div className="sel-right">
+                          <button 
+                            onClick={async () => {
+                              if (confirm(`Excluir "${s.jogo}" e gerar nova aposta?`)) {
+                                setExcludedMatchIds(prev => [...prev, s.fixture_id]);
+                                await cancelarAposta(pendente.id);
+                                setTimeout(() => gerarAcumulador(), 500);
+                              }
+                            }}
+                            style={{ background: 'none', border: 'none', color: 'var(--clr-red)', cursor: 'pointer', padding: '0', fontSize: '0.65rem', opacity: 0.5, marginBottom: '4px' }}
+                          >
+                            🚫 Desativar
+                          </button>
+                          <span className="sel-odd" style={{ background: 'rgba(255,255,255,0.05)', padding: '2px 8px', borderRadius: '4px' }}>{s.odd.toFixed(2)}</span>
+                          <div style={{ fontSize: '0.6rem', color: 'var(--clr-amber)', fontWeight: 700 }}>⏳ AGUARDAR</div>
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
 
                 <div className="pending-actions" style={{ marginTop: '1.5rem', display: 'flex', gap: '10px' }}>
                    <button
@@ -723,11 +717,11 @@ export default function DashboardPage() {
 
                     <div className="selecoes-list" style={{ gap: '10px' }}>
                        {apostaAtual.selecoes.map((s, i) => (
-                        <div key={i} className="selecao-row" style={{ height: '64px', transition: 'transform 0.2s' }}>
-                          <span className="sel-num" style={{ opacity: 0.3 }}>{i + 1}</span>
-                          <div style={{ flex: 1 }}>
-                            <p style={{ fontWeight: 700, fontSize: '0.9rem' }}>{s.jogo}</p>
-                            <p style={{ fontSize: '0.65rem', color: 'var(--clr-muted)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <div key={i} className="selecao-row">
+                          <span className="sel-num">{i + 1}</span>
+                          <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                            <span className="sel-jogo">{s.jogo}</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.65rem', color: 'var(--clr-muted)' }}>
                                 <span>🕒 {formatTime(s.horario)}</span>
                                 {s.avg_goals && (
                                   <span style={{ 
@@ -735,26 +729,24 @@ export default function DashboardPage() {
                                     color: getSafetyColor(s.avg_goals).text,
                                     padding: '1px 8px', 
                                     borderRadius: '12px',
-                                    fontSize: '0.6rem',
                                     fontWeight: 700,
                                     border: `1px solid ${getSafetyColor(s.avg_goals).text}22`
                                   }}>
                                     📊 {s.avg_goals.toFixed(1)} avg
                                   </span>
                                 )}
-                                {s.form && <span style={{ color: 'var(--clr-accent)', opacity: 0.8 }}>{s.form}</span>}
-                            </p>
+                            </div>
                           </div>
-                          <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
+                          
+                          <div className="sel-right">
                             <button 
                               onClick={(e) => { e.stopPropagation(); toggleExcludeMatch(s.fixture_id); }}
-                              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.65rem', opacity: 0.4, color: 'var(--clr-red)', marginBottom: '4px' }}
-                              title="Remover este jogo permanentemente"
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.65rem', opacity: 0.5, color: 'var(--clr-red)', marginBottom: '4px' }}
                             >
                               🚫 Desativar
                             </button>
-                            <p style={{ color: MARKET_LABEL[s.mercado]?.color, fontSize: '0.75rem', fontWeight: 800 }}>{MARKET_LABEL[s.mercado]?.label}</p>
-                            <p style={{ fontWeight: 800, color: 'var(--clr-text)' }}>{s.odd.toFixed(2)}</p>
+                            <span className="sel-mercado" style={{ color: MARKET_LABEL[s.mercado]?.color, fontWeight: 700 }}>{MARKET_LABEL[s.mercado]?.label} 🛡️</span>
+                            <span className="sel-odd" style={{ color: 'white', fontWeight: 800 }}>{s.odd.toFixed(2)}</span>
                           </div>
                         </div>
                       ))}
