@@ -1,6 +1,15 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { 
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  BarChart, Bar, Cell
+} from 'recharts';
+import { 
+  TrendingUp, Target, Activity, Award, Calendar, 
+  ChevronUp, ChevronDown, CheckCircle, XCircle,
+  Trophy, Search, Home, Sparkles
+} from 'lucide-react';
 
 // ── Types ──────────────────────────────────────────────────
 
@@ -64,6 +73,9 @@ interface EVOpportunity {
   probabilidade: number;
   ev: number;
   sugestao: string;
+  avg_goals?: number;
+  form?: string;
+  h2h_un55_pct?: number;
 }
 
 
@@ -85,18 +97,26 @@ const MARKET_LABEL: Record<string, { label: string; color: string }> = {
   "12": { label: "Qualquer Equipa (12) ⚔️", color: "#6366f1" },
 };
 
+const TOP_LEAGUES_COUNT = 80;
+
 // ── Dashboard ──────────────────────────────────────────────
 
 export default function DashboardPage() {
-  const [activeTab, setActiveTab] = useState<"acumulador" | "ev" | "radar">("acumulador");
+  const [activeTab, setActiveTab] = useState<"acumulador" | "ev" | "radar" | "previsoes" | "performance">("acumulador");
   const [cicloState, setCicloState] = useState<CicloState | null>(null);
   const [historicoCiclos, setHistoricoCiclos] = useState<CicloAcumulador[]>([]);
   const [apostaAtual, setApostaAtual] = useState<ApostaGerada | null>(null);
   const [evOps, setEvOps] = useState<EVOpportunity[]>([]);
   const [radarOps, setRadarOps] = useState<EVOpportunity[]>([]);
+  const [previsoes, setPrevisoes] = useState<EVOpportunity[]>([]);
+  const [performanceData, setPerformanceData] = useState<any[]>([]);
+  const [performanceStats, setPerformanceStats] = useState<any>(null);
+  const [previsoesLoading, setPrevisoesLoading] = useState(false);
+  const [performanceLoading, setPerformanceLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [gerando, setGerando] = useState(false);
   const [scaneando, setScaneando] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
   const [radarLoading, setRadarLoading] = useState(false);
   const [resolvendo, setResolvendo] = useState<"win" | "loss" | null>(null);
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" | "info" } | null>(null);
@@ -159,13 +179,14 @@ export default function DashboardPage() {
         const timeParts = parts[1].split(":");
         if (dateParts.length >= 2 && timeParts.length >= 2) {
           const year = new Date().getFullYear();
-          d = new Date(year, parseInt(dateParts[1]) - 1, parseInt(dateParts[0]), parseInt(timeParts[0]), parseInt(timeParts[1]));
+          // Adjust year to 2026 if it's in the past
+          const targetYear = year < 2026 ? 2026 : year;
+          d = new Date(targetYear, parseInt(dateParts[1]) - 1, parseInt(dateParts[0]), parseInt(timeParts[0]), parseInt(timeParts[1]));
         }
       }
     }
 
     if (isNaN(d.getTime())) {
-      // Se não for uma data válida mas tiver conteúdo, retorna o conteúdo original (como status de jogo)
       return dateStr;
     }
 
@@ -233,6 +254,37 @@ export default function DashboardPage() {
     }
   }, [excludedMatchIds]);
 
+  const fetchPrevisoes = useCallback(async () => {
+    setPrevisoesLoading(true);
+    try {
+      const res = await fetch("/api/strategies/previsoes");
+      const json = await res.json();
+      if (json.success) {
+        setPrevisoes(json.data.filter((op: any) => !excludedMatchIds.includes(op.fixture_id)));
+      }
+    } catch {
+      showToast("Erro ao carregar Previsões.", "error");
+    } finally {
+      setPrevisoesLoading(false);
+    }
+  }, [excludedMatchIds]);
+
+  const fetchPerformance = useCallback(async () => {
+    setPerformanceLoading(true);
+    try {
+      const res = await fetch("/api/analytics/performance");
+      const json = await res.json();
+      if (json.success) {
+        setPerformanceData(json.data);
+        setPerformanceStats(json.stats);
+      }
+    } catch {
+      showToast("Erro ao carregar Performance.", "error");
+    } finally {
+      setPerformanceLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchCiclo();
     
@@ -250,7 +302,13 @@ export default function DashboardPage() {
     if (activeTab === "radar" && radarOps.length === 0) {
       fetchRadar();
     }
-  }, [activeTab, fetchEV, fetchRadar, evOps.length, radarOps.length]);
+    if (activeTab === "previsoes" && previsoes.length === 0) {
+      fetchPrevisoes();
+    }
+    if (activeTab === "performance") {
+      fetchPerformance();
+    }
+  }, [activeTab, fetchEV, fetchRadar, fetchPrevisoes, fetchPerformance, evOps.length, radarOps.length, previsoes.length]);
 
 
   const gerarAcumulador = async () => {
@@ -365,142 +423,173 @@ export default function DashboardPage() {
   }
 
   return (
-    <main className="dashboard">
-      {/* ── Toast ─────────────────────────────────────────── */}
+    <main className="app-container">
       {toast && (
         <div className={`toast toast--${toast.type}`}>
-          {toast.type === 'success' ? '✅ ' : toast.type === 'error' ? '❌ ' : 'ℹ️ '}
           {toast.msg}
         </div>
       )}
 
-      {/* ── Header ────────────────────────────────────────── */}
-      <header className="dash-header" style={{ background: 'linear-gradient(135deg, var(--clr-surface), #0f172a)', borderBottom: '2px solid var(--clr-accent)' }}>
-        <div className="header-left">
-          <div className="logo-wrapper" style={{ position: 'relative' }}>
-            <span className="logo-icon" style={{ fontSize: '2.5rem' }}>🔥</span>
-            <div style={{ position: 'absolute', top: -4, right: -4, width: 10, height: 10, background: 'var(--clr-green)', borderRadius: '50%', border: '2px solid var(--clr-bg)' }} />
+      {/* ── Sidebar (Desktop) ───────────────────────────── */}
+      <aside className="sidebar">
+        <div className="logo-wrapper" style={{ marginBottom: '3rem', display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{ width: '45px', height: '45px', background: 'var(--clr-accent)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 20px rgba(6,182,212,0.3)' }}>
+            <span style={{ fontSize: '1.5rem' }}>💎</span>
           </div>
           <div>
-            <h1 style={{ letterSpacing: '-0.02em', fontSize: '1.75rem' }}>Betano <span style={{ color: 'var(--clr-text)', fontWeight: 400 }}>Engine</span></h1>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
-              <span className="status-badge safe" style={{ padding: '2px 8px', fontSize: '0.65rem' }}>LIVE 2026</span>
-              <p className="subtitle" style={{ fontSize: '0.75rem' }}>Algoritmo de Alta Precisão · €5 → €1000</p>
+            <h1 style={{ letterSpacing: '-0.03em', fontSize: '1.4rem', fontWeight: 800, margin: 0 }}>COOL<span style={{ color: 'var(--clr-accent)' }}>BET</span></h1>
+            <span style={{ fontSize: '0.6rem', color: 'var(--clr-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Elite Analytics</span>
+          </div>
+        </div>
+
+        <nav style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          {[
+            { id: 'acumulador', label: 'Dashboard', icon: <Trophy size={20} /> },
+            { id: 'ev', label: 'Scanner +EV', icon: <Search size={20} /> },
+            { id: 'radar', label: 'Radar Favoritos', icon: <Home size={20} /> },
+            { id: 'previsoes', label: 'Previsões Elite', icon: <Sparkles size={20} /> },
+            { id: 'performance', label: 'Performance', icon: <TrendingUp size={20} /> },
+          ].map((item) => (
+            <button
+              key={item.id}
+              className={`tab-btn ${activeTab === item.id ? "active" : ""}`}
+              onClick={() => setActiveTab(item.id as any)}
+              style={{ justifyContent: 'flex-start', padding: '12px 16px', borderRadius: '12px' }}
+            >
+              {item.icon}
+              <span style={{ marginLeft: '12px' }}>{item.label}</span>
+            </button>
+          ))}
+        </nav>
+
+        <div style={{ marginTop: 'auto', padding: '1.5rem', background: 'rgba(255,255,255,0.03)', borderRadius: '16px', border: '1px solid var(--clr-border)' }}>
+          <p style={{ fontSize: '0.7rem', color: 'var(--clr-muted)', marginBottom: '4px' }}>ESTADO DO MOTOR</p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{ width: '8px', height: '8px', background: 'var(--clr-green)', borderRadius: '50%', boxShadow: '0 0 10px var(--clr-green)' }} />
+            <span style={{ fontSize: '0.8rem', fontWeight: 600 }}>LIVE 2026</span>
+          </div>
+        </div>
+      </aside>
+
+      {/* ── Bottom Nav (Mobile) ─────────────────────────── */}
+      <nav className="bottom-nav">
+        {[
+          { id: 'acumulador', icon: <Trophy size={22} /> },
+          { id: 'ev', icon: <Search size={22} /> },
+          { id: 'radar', icon: <Home size={22} /> },
+          { id: 'previsoes', icon: <Sparkles size={22} /> },
+          { id: 'performance', icon: <TrendingUp size={22} /> },
+        ].map((item) => (
+          <button
+            key={item.id}
+            className={`tab-btn ${activeTab === item.id ? "active" : ""}`}
+            onClick={() => setActiveTab(item.id as any)}
+            style={{ width: '50px', height: '50px', background: 'none', border: 'none', color: activeTab === item.id ? 'var(--clr-accent)' : 'var(--clr-muted)' }}
+          >
+            {item.icon}
+          </button>
+        ))}
+      </nav>
+
+      <div className="main-content">
+        {/* ── Header ────────────────────────────────────────── */}
+        <header className="dash-header" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--clr-border)', marginBottom: '2rem' }}>
+          <div className="header-left">
+            <div className="logo-text" style={{ fontSize: '1.2rem', fontWeight: 800 }}>
+              <span style={{ color: 'var(--clr-text)' }}>Resumo de </span>
+              <span style={{ color: 'var(--clr-accent)' }}>Atividade</span>
+            </div>
+            <p className="subtitle" style={{ fontSize: '0.75rem', marginLeft: '10px', paddingLeft: '10px', borderLeft: '1px solid var(--clr-border)' }}>
+              €5 → <span style={{ color: 'var(--clr-green)', fontWeight: 700 }}>€1.000,00</span>
+            </p>
+          </div>
+          <div className="header-right" style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
+            <div style={{ textAlign: 'right', borderRight: '1px solid rgba(255,255,255,0.1)', paddingRight: '20px' }}>
+              <p style={{ fontSize: '0.6rem', color: 'var(--clr-muted)', textTransform: 'uppercase', fontWeight: 700 }}>HORA LOCAL</p>
+              <p style={{ fontSize: '0.9rem', fontWeight: 600 }}>{currentTime.toLocaleTimeString("pt-PT", { hour: '2-digit', minute: '2-digit' })}</p>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <p style={{ fontSize: '0.6rem', color: 'var(--clr-muted)', textTransform: 'uppercase', fontWeight: 700 }}>BANCA ATUAL</p>
+              <p style={{ fontSize: '1.3rem', fontWeight: 800, color: 'var(--clr-green)' }}>€{ciclo?.stake_atual?.toFixed(2) ?? "5.00"}</p>
+            </div>
+          </div>
+        </header>
+
+
+      {/* ── Global Cycle Progress ──────────────────────────── */}
+      <section className="cycle-section" style={{ position: 'relative', overflow: 'hidden', marginBottom: '2rem' }}>
+          <div style={{ position: 'absolute', top: '-50%', right: '-10%', width: '300px', height: '300px', background: 'radial-gradient(circle, rgba(6,182,212,0.08) 0%, transparent 70%)', pointerEvents: 'none' }} />
+        <div className="cycle-header">
+          <div className="cycle-title">
+            <span className="cycle-label" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--clr-accent)' }} />
+                Ciclo Ativo #{historicoCiclos.length || 1}
+            </span>
+            <span className="cycle-apostas">{ciclo?.total_apostas ?? 0} etapas concluídas hoje</span>
+          </div>
+          <div className="cycle-amounts" style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+            <button 
+              onClick={reiniciarCiclo} 
+              style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--clr-border)', color: 'var(--clr-muted)', fontSize: '0.7rem', padding: '6px 12px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, transition: 'all 0.2s' }}
+              title="Reiniciar Ciclo para €5.00"
+              onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(239,68,68,0.1)'; e.currentTarget.style.color = 'var(--clr-red)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; e.currentTarget.style.color = 'var(--clr-muted)'; }}
+            >
+              🔄 Reiniciar
+            </button>
+            <div style={{ textAlign: 'right' }}>
+                <p className="cs-label">Objetivo</p>
+                <span className="stake-objetivo" style={{ fontSize: '1.5rem', opacity: 1, color: 'var(--clr-text)' }}>€{ciclo?.objetivo?.toFixed(0) ?? "1000"}</span>
             </div>
           </div>
         </div>
-        <div className="header-right" style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
-          <div style={{ textAlign: 'right', borderRight: '1px solid rgba(255,255,255,0.1)', paddingRight: '20px' }}>
-            <p style={{ fontSize: '0.65rem', color: 'var(--clr-muted)', textTransform: 'uppercase', fontWeight: 700 }}>Horário Local</p>
-            <p style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--clr-text)' }}>
-              {currentTime.toLocaleTimeString("pt-PT", { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-            </p>
-            <p style={{ fontSize: '0.6rem', color: 'var(--clr-muted)' }}>{currentTime.toLocaleDateString("pt-PT")}</p>
-          </div>
-          <div style={{ textAlign: 'right' }}>
-            <p style={{ fontSize: '0.65rem', color: 'var(--clr-muted)', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.05em' }}>Banca Atual</p>
-            <p style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--clr-green)' }}>€{ciclo?.stake_atual?.toFixed(2) ?? "5.00"}</p>
+
+        <div className="progress-track" style={{ height: '14px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)' }}>
+          <div
+            className="progress-fill progress-fill--glow"
+            style={{ 
+                width: `${cicloState?.progressao_pct ?? 0.5}%`, 
+                background: 'linear-gradient(90deg, var(--clr-accent), #ff7733)',
+                boxShadow: '0 0 25px rgba(255,85,0,0.3)'
+            }}
+          />
+          <div
+            className="progress-label"
+            style={{ 
+                left: `${Math.min(cicloState?.progressao_pct ?? 0.5, 90)}%`,
+                background: 'var(--clr-accent)',
+                color: 'white',
+                padding: '2px 8px',
+                borderRadius: '4px',
+                top: '-30px',
+                fontSize: '0.7rem'
+            }}
+          >
+            {cicloState?.progressao_pct?.toFixed(1)}%
           </div>
         </div>
-      </header>
 
-      {/* ── Tabs ─────────────────────────────────────────── */}
-      <nav className="tab-nav" style={{ padding: '6px', borderRadius: '16px' }}>
-        <button
-          className={`tab-btn ${activeTab === "acumulador" ? "active" : ""}`}
-          onClick={() => setActiveTab("acumulador")}
-          style={{ transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)' }}
-        >
-          🏆 <span style={{ marginLeft: '4px' }}>Acumulador Ciclo</span>
-        </button>
-        <button
-          className={`tab-btn ${activeTab === "ev" ? "active" : ""}`}
-          onClick={() => setActiveTab("ev")}
-          style={{ transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)' }}
-        >
-          🧪 <span style={{ marginLeft: '4px' }}>Scanner +EV</span>
-        </button>
-        <button
-          className={`tab-btn ${activeTab === "radar" ? "active" : ""}`}
-          onClick={() => setActiveTab("radar")}
-          style={{ transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)' }}
-        >
-          🏠 <span style={{ marginLeft: '4px' }}>Radar Favoritos</span>
-        </button>
-      </nav>
+        <div className="cycle-stats" style={{ background: 'rgba(0,0,0,0.2)', padding: '1.25rem', borderRadius: '12px' }}>
+          <div className="cycle-stat">
+            <span className="cs-label">Banca</span>
+            <span className="cs-value" style={{ color: 'var(--clr-green)' }}>€{ciclo?.stake_atual?.toFixed(2)}</span>
+          </div>
+          <div className="cycle-stat">
+            <span className="cs-label">Faltam</span>
+            <span className="cs-value">€{cicloState?.faltam_para_objetivo?.toFixed(2)}</span>
+          </div>
+          <div className="cycle-stat">
+            <span className="cs-label">Multiplicador</span>
+            <span className="cs-value cs-value--amber" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                {cicloState?.multiplicador_necessario?.toFixed(1)}x 
+                <span style={{ fontSize: '0.6rem', opacity: 0.6 }}>IQ</span>
+            </span>
+          </div>
+        </div>
+      </section>
 
       {activeTab === "acumulador" ? (
         <>
-          {/* ── Cycle Progress ────────────────────────────────── */}
-          <section className="cycle-section" style={{ position: 'relative', overflow: 'hidden' }}>
-             <div style={{ position: 'absolute', top: '-50%', right: '-10%', width: '300px', height: '300px', background: 'radial-gradient(circle, rgba(255,85,0,0.05) 0%, transparent 70%)', pointerEvents: 'none' }} />
-            <div className="cycle-header">
-              <div className="cycle-title">
-                <span className="cycle-label" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--clr-accent)' }} />
-                    Ciclo Ativo #{historicoCiclos.length || 1}
-                </span>
-                <span className="cycle-apostas">{ciclo?.total_apostas ?? 0} etapas concluídas hoje</span>
-              </div>
-              <div className="cycle-amounts" style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-                <button 
-                  onClick={reiniciarCiclo} 
-                  style={{ background: 'rgba(255,100,0,0.1)', border: '1px solid rgba(255,100,0,0.2)', color: 'var(--clr-amber)', fontSize: '0.7rem', padding: '6px 12px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600 }}
-                  title="Reiniciar Ciclo para €5.00"
-                >
-                  🔄 Reiniciar
-                </button>
-                <div style={{ textAlign: 'right' }}>
-                   <p className="cs-label">Objetivo</p>
-                   <span className="stake-objetivo" style={{ fontSize: '1.5rem', opacity: 1, color: 'var(--clr-text)' }}>€{ciclo?.objetivo?.toFixed(0) ?? "1000"}</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="progress-track" style={{ height: '14px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)' }}>
-              <div
-                className="progress-fill progress-fill--glow"
-                style={{ 
-                    width: `${cicloState?.progressao_pct ?? 0.5}%`, 
-                    background: 'linear-gradient(90deg, var(--clr-accent), #ff7733)',
-                    boxShadow: '0 0 25px rgba(255,85,0,0.3)'
-                }}
-              />
-              <div
-                className="progress-label"
-                style={{ 
-                    left: `${Math.min(cicloState?.progressao_pct ?? 0.5, 90)}%`,
-                    background: 'var(--clr-accent)',
-                    color: 'white',
-                    padding: '2px 8px',
-                    borderRadius: '4px',
-                    top: '-30px',
-                    fontSize: '0.7rem'
-                }}
-              >
-                {cicloState?.progressao_pct?.toFixed(1)}%
-              </div>
-            </div>
-
-            <div className="cycle-stats" style={{ background: 'rgba(0,0,0,0.2)', padding: '1.25rem', borderRadius: '12px' }}>
-              <div className="cycle-stat">
-                <span className="cs-label">Banca</span>
-                <span className="cs-value" style={{ color: 'var(--clr-green)' }}>€{ciclo?.stake_atual?.toFixed(2)}</span>
-              </div>
-              <div className="cycle-stat">
-                <span className="cs-label">Faltam</span>
-                <span className="cs-value">€{cicloState?.faltam_para_objetivo?.toFixed(2)}</span>
-              </div>
-              <div className="cycle-stat">
-                <span className="cs-label">Multiplicador</span>
-                <span className="cs-value cs-value--amber" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    {cicloState?.multiplicador_necessario?.toFixed(1)}x 
-                    <span style={{ fontSize: '0.6rem', opacity: 0.6 }}>IQ</span>
-                </span>
-              </div>
-            </div>
-          </section>
-
           {/* ── Pending / Builder Area ────────────────────────── */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
             
@@ -543,9 +632,24 @@ export default function DashboardPage() {
                              {s.form && <span style={{ opacity: 0.6 }}>[{s.form}]</span>}
                         </p>
                       </div>
-                      <div style={{ textAlign: 'right' }}>
-                        <span className="sel-odd" style={{ fontSize: '1rem', background: 'rgba(255,255,255,0.05)', padding: '2px 8px', borderRadius: '4px' }}>{s.odd.toFixed(2)}</span>
-                        <div style={{ fontSize: '0.6rem', marginTop: '4px', color: 'var(--clr-amber)' }}>⏳ A AGUARDAR</div>
+                      <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <div>
+                          <span className="sel-odd" style={{ fontSize: '1rem', background: 'rgba(255,255,255,0.05)', padding: '2px 8px', borderRadius: '4px' }}>{s.odd.toFixed(2)}</span>
+                          <div style={{ fontSize: '0.6rem', marginTop: '4px', color: 'var(--clr-amber)' }}>⏳ A AGUARDAR</div>
+                        </div>
+                        <button 
+                          onClick={async () => {
+                            if (confirm(`Excluir "${s.jogo}" e gerar nova aposta?`)) {
+                              setExcludedMatchIds(prev => [...prev, s.fixture_id]);
+                              await cancelarAposta(pendente.id);
+                              setTimeout(() => gerarAcumulador(), 500);
+                            }
+                          }}
+                          style={{ background: 'rgba(255,255,255,0.05)', border: 'none', color: 'var(--clr-red)', cursor: 'pointer', padding: '10px', borderRadius: '8px', fontSize: '1.2rem' }}
+                          title="Eliminar este jogo e gerar novo"
+                        >
+                          🚫
+                        </button>
                       </div>
                     </div>
                   ))}
@@ -719,15 +823,15 @@ export default function DashboardPage() {
           {activeTab === "ev" && (
             <section className="ev-scanner-section">
           {/* EV Scanner remains with the same robust logic but better card styles applied via the grid */}
-           <div className="section-header">
-            <div>
-              <h2 style={{ fontSize: '1.5rem' }}>Scanner de Valor <span style={{ color: 'var(--clr-accent)' }}>+EV</span></h2>
-              <p className="subtitle">Odds desajustadas detetadas por comparação estatística</p>
-            </div>
-            <button className="btn-gerar" onClick={fetchEV} disabled={scaneando} style={{ background: 'var(--clr-surface-3)', border: 'none' }}>
-              {scaneando ? "A scanear..." : "🔄 Atualizar Varredura"}
-            </button>
-          </div>
+            <div className="section-header">
+             <div>
+               <h2 style={{ fontSize: '1.5rem', fontWeight: 800 }}>Scanner de Valor <span style={{ color: 'var(--clr-accent)' }}>+EV</span></h2>
+               <p className="subtitle">Odds desajustadas detetadas por comparação estatística</p>
+             </div>
+             <button className="btn-gerar" onClick={fetchEV} disabled={scaneando}>
+               {scaneando ? "A scanear..." : "🔄 Atualizar Varredura"}
+             </button>
+           </div>
 
           <div className="ev-grid" style={{ marginTop: '1rem' }}>
             {evOps.length > 0 ? (
@@ -788,10 +892,10 @@ export default function DashboardPage() {
         <section className="radar-section">
           <div className="section-header">
             <div>
-              <h2 style={{ fontSize: '1.5rem' }}>🏠 Radar <span style={{ color: 'var(--clr-green)' }}>Favoritos</span></h2>
+              <h2 style={{ fontSize: '1.5rem', fontWeight: 800 }}>🏠 Radar de <span style={{ color: 'var(--clr-green)' }}>Favoritos</span></h2>
               <p className="subtitle">Superioridade absoluta em casa (Tabela + Forma)</p>
             </div>
-            <button className="btn-gerar" onClick={fetchRadar} disabled={radarLoading} style={{ background: '#1e293b', border: 'none' }}>
+            <button className="btn-gerar" onClick={fetchRadar} disabled={radarLoading}>
               {radarLoading ? "Analizando..." : "🔄 Atualizar Radar"}
             </button>
           </div>
@@ -861,6 +965,213 @@ export default function DashboardPage() {
           </div>
         </section>
       )}
+
+      {activeTab === "previsoes" && (
+        <section className="previsoes-section">
+          <div className="section-header">
+            <div>
+              <h2 style={{ fontSize: '1.5rem', fontWeight: 800 }}>✨ Previsões <span style={{ color: 'var(--clr-accent)' }}>Elite</span></h2>
+              <p className="subtitle">Resultados estatísticos com probabilidade superior a 80%</p>
+            </div>
+            
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <div style={{ position: 'relative' }}>
+                <input 
+                  type="text" 
+                  placeholder="Filtrar por liga ou equipa..." 
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid var(--clr-border)', borderRadius: '12px', padding: '10px 15px', fontSize: '0.85rem', width: '250px', color: 'white', transition: 'all 0.2s' }}
+                />
+              </div>
+              <button className="btn-gerar" onClick={fetchPrevisoes} disabled={previsoesLoading}>
+                {previsoesLoading ? "Analizando..." : "🔄 Atualizar"}
+              </button>
+            </div>
+          </div>
+
+          <div className="ev-grid" style={{ marginTop: '1.5rem' }}>
+            {previsoes
+              .filter(op => 
+                op.liga.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                op.jogo.toLowerCase().includes(searchTerm.toLowerCase())
+              ).length > 0 ? (
+              previsoes
+                .filter(op => 
+                  op.liga.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                  op.jogo.toLowerCase().includes(searchTerm.toLowerCase())
+                )
+                .map((op, i) => (
+                <div key={i} className="ev-card" style={{ background: 'var(--clr-surface)', border: '1px solid rgba(251, 191, 36, 0.3)', position: 'relative' }}>
+                  <div className="ev-card-header">
+                    <span className="ev-liga">{op.liga}</span>
+                    <span className="ev-sugestao" style={{ background: 'rgba(251, 191, 36, 0.1)', color: 'var(--clr-amber)', border: '1px solid rgba(251, 191, 36, 0.2)' }}>
+                      {op.sugestao}
+                    </span>
+                  </div>
+                  <h3 className="ev-jogo" style={{ margin: '0.8rem 0', fontSize: '1.1rem' }}>{op.jogo}</h3>
+                  
+                  {/* Stats Context Row */}
+                  <div style={{ display: 'flex', gap: '8px', marginBottom: '1rem', flexWrap: 'wrap' }}>
+                    {op.form && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(255,255,255,0.05)', padding: '4px 8px', borderRadius: '6px', fontSize: '0.7rem' }}>
+                        <Activity size={12} color="var(--clr-amber)" />
+                        <span style={{ fontWeight: 700, letterSpacing: '1px' }}>{op.form}</span>
+                      </div>
+                    )}
+                    {op.avg_goals && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(255,255,255,0.05)', padding: '4px 8px', borderRadius: '6px', fontSize: '0.7rem' }}>
+                        <span style={{ opacity: 0.6 }}>Golos:</span>
+                        <span style={{ fontWeight: 700 }}>{op.avg_goals.toFixed(1)} avg</span>
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div style={{ marginTop: '1.2rem', padding: '1rem', background: 'rgba(0,0,0,0.2)', borderRadius: '12px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.8rem', fontWeight: 600 }}>
+                      <span style={{ opacity: 0.6 }}>Confiança do Algoritmo</span>
+                      <span style={{ color: 'var(--clr-amber)', fontSize: '1rem' }}>{(op.probabilidade * 100).toFixed(0)}%</span>
+                    </div>
+                    <div style={{ height: '8px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', overflow: 'hidden' }}>
+                      <div style={{ 
+                        height: '100%', 
+                        width: `${op.probabilidade * 100}%`, 
+                        background: `linear-gradient(90deg, #fbbf24 0%, #f59e0b 100%)`,
+                        boxShadow: '0 0 15px rgba(251, 191, 36, 0.2)'
+                      }} />
+                    </div>
+                  </div>
+
+                  <div className="ev-stats-grid" style={{ marginTop: '1.2rem' }}>
+                    <div className="ev-stat">
+                      <span className="label">PREVISÃO (MERCADO)</span>
+                      <span className="val" style={{ color: 'white', fontWeight: 800 }}>{op.market}</span>
+                    </div>
+                    <div className="ev-stat">
+                      <span className="label">ODD ATUAL</span>
+                      <span className="val">{op.odd ? `${op.odd.toFixed(2)}x` : '--'}</span>
+                    </div>
+                    <div style={{ position: 'absolute', top: '10px', right: '10px' }}>
+                      <button 
+                        onClick={() => toggleExcludeMatch(op.fixture_id)}
+                        style={{ background: 'rgba(0,0,0,0.3)', border: 'none', color: 'var(--clr-red)', fontSize: '0.8rem', cursor: 'pointer', padding: '5px', borderRadius: '50%' }}
+                        title="Ocultar jogo"
+                      >
+                        🚫
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="empty-state" style={{ background: 'rgba(0,0,0,0.1)', border: '1px dashed var(--clr-amber)', gridColumn: '1/-1', textAlign: 'center', padding: '4rem 2rem' }}>
+                {previsoesLoading ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>
+                    <div className="spinner" style={{ borderTopColor: 'var(--clr-amber)' }} />
+                    <p>O algoritmo está a processar {TOP_LEAGUES_COUNT}+ ligas...</p>
+                  </div>
+                ) : (
+                  <>
+                    <span style={{ fontSize: '3rem', opacity: 0.2 }}>✨</span>
+                    <p style={{ marginTop: '1rem' }}>Nenhum resultado com 80%+ de confiança detetado neste momento.</p>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
+      {activeTab === "performance" && (
+        <section className="performance-section animate-in">
+          <div className="section-header">
+            <div>
+              <h2 style={{ fontSize: '1.5rem', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                📊 Análise de <span style={{ color: 'var(--clr-green)' }}>Performance Elite</span>
+              </h2>
+              <p className="subtitle">Estatísticas acumuladas e evolução patrimonial do motor</p>
+            </div>
+          </div>
+
+          {/* Stats Cards */}
+          <div className="stats-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginTop: '20px' }}>
+            <div className="stat-card" style={{ background: 'var(--clr-surface)', padding: '1.5rem', borderRadius: '20px', border: '1px solid rgba(255,255,255,0.05)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <span style={{ fontSize: '0.8rem', color: 'var(--clr-muted)', fontWeight: 600 }}>TAXA DE ACERTO</span>
+                <Award size={20} color="var(--clr-amber)" />
+              </div>
+              <p style={{ fontSize: '2rem', fontWeight: 800, marginTop: '10px' }}>{performanceStats?.winRate}%</p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginTop: '5px', fontSize: '0.75rem', color: 'var(--clr-green)' }}>
+                <ChevronUp size={12} /> <span>Acima da média</span>
+              </div>
+            </div>
+            
+            <div className="stat-card" style={{ background: 'var(--clr-surface)', padding: '1.5rem', borderRadius: '20px', border: '1px solid rgba(255,255,255,0.05)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <span style={{ fontSize: '0.8rem', color: 'var(--clr-muted)', fontWeight: 600 }}>LUCRO TOTAL</span>
+                <TrendingUp size={20} color="var(--clr-green)" />
+              </div>
+              <p style={{ fontSize: '2rem', fontWeight: 800, marginTop: '10px', color: 'var(--clr-green)' }}>€{performanceStats?.totalProfit}</p>
+              <span style={{ fontSize: '0.7rem', opacity: 0.5 }}>Líquido acumulado</span>
+            </div>
+
+            <div className="stat-card" style={{ background: 'var(--clr-surface)', padding: '1.5rem', borderRadius: '20px', border: '1px solid rgba(255,255,255,0.05)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <span style={{ fontSize: '0.8rem', color: 'var(--clr-muted)', fontWeight: 600 }}>TOTAL APOSTAS</span>
+                <Activity size={20} color="var(--clr-accent)" />
+              </div>
+              <p style={{ fontSize: '2rem', fontWeight: 800, marginTop: '10px' }}>{performanceStats?.totalBets}</p>
+              <span style={{ fontSize: '0.7rem', opacity: 0.5 }}>Operaçoes finalizadas</span>
+            </div>
+          </div>
+
+          {/* Bankroll Chart */}
+          <div style={{ background: 'var(--clr-surface)', padding: '2rem', borderRadius: '24px', marginTop: '2rem', border: '1px solid rgba(255,255,255,0.05)', height: '450px' }}>
+            <h3 style={{ fontSize: '1rem', marginBottom: '2rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              📈 Evolução da Banca (€)
+            </h3>
+            <div style={{ width: '100%', height: '350px' }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={performanceData}>
+                  <defs>
+                    <linearGradient id="colorBalance" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="var(--clr-accent)" stopOpacity={0.4}/>
+                      <stop offset="95%" stopColor="var(--clr-accent)" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" vertical={false} />
+                  <XAxis 
+                    dataKey="timestamp" 
+                    hide 
+                  />
+                  <YAxis 
+                    stroke="rgba(255,255,255,0.2)" 
+                    fontSize={10} 
+                    tickFormatter={(val) => `€${val}`}
+                    domain={['auto', 'auto']}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <Tooltip 
+                    contentStyle={{ background: '#0f172a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px' }}
+                    itemStyle={{ color: '#22c55e' }}
+                    labelFormatter={(label) => new Date(label).toLocaleDateString()}
+                  />
+                  <Area 
+                    type="monotone" 
+                    dataKey="balance" 
+                    stroke="#22c55e" 
+                    strokeWidth={3}
+                    fillOpacity={1} 
+                    fill="url(#colorBalance)" 
+                    animationDuration={1500}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </section>
+      )}
         </>
       )}
 
@@ -887,11 +1198,12 @@ export default function DashboardPage() {
         </section>
       )}
 
-      {/* ── Footer ───────────────────────────────────────── */}
-      <footer style={{ marginTop: '4rem', padding: '2rem 0', textAlign: 'center', borderTop: '1px solid var(--clr-border)', opacity: 0.5 }}>
-         <p style={{ fontSize: '0.75rem' }}>Betano Betting Engine v4.0 · Powered by Universal Shield AI</p>
-         <p style={{ fontSize: '0.65rem', marginTop: '4px' }}>Dados fornecidos por API-Sports, SoccerData e FlashLive 2026</p>
-      </footer>
+        {/* ── Footer ───────────────────────────────────────── */}
+        <footer style={{ marginTop: '4rem', padding: '2rem 0', textAlign: 'center', borderTop: '1px solid var(--clr-border)', opacity: 0.5 }}>
+           <p style={{ fontSize: '0.75rem' }}>COOLBET Analytics v5.0 · Powered by Universal Shield AI</p>
+           <p style={{ fontSize: '0.65rem', marginTop: '4px' }}>Dados fornecidos por API-Sports, SoccerData e FlashLive 2026</p>
+        </footer>
+      </div>
     </main>
   );
 }

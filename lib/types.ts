@@ -93,6 +93,7 @@ export interface AcumuladorSelecao {
   away_pos?: number;
   home_record?: string; // e.g. "5-2-1"
   away_record?: string; // e.g. "1-2-5"
+  fixture_mid?: string;
 }
 
 export interface AcumuladorAposta {

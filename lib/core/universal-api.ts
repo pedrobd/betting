@@ -20,6 +20,7 @@ export interface UniversalFixture {
   away_pos?: number;
   home_record?: string;
   away_record?: string;
+  fixture_mid?: string;
 }
 
 /**
@@ -46,14 +47,32 @@ export class UniversalAPIClient {
 
     return games.map((g, idx) => {
       let startTime = g.time || new Date().toISOString();
+      const today = getEffectiveDateString();
+      const currentYear = new Date().getFullYear();
       
-      // If g.time is just HH:mm, prepend today's date
+      // Format 1: HH:mm (prepend today's date)
       if (g.time && g.time.includes(":") && g.time.length <= 5) {
         startTime = `${today}T${g.time}:00Z`;
+      } 
+      // Format 2: DD.MM. HH:mm (project to 2026)
+      else if (g.time && g.time.includes(".") && g.time.includes(":")) {
+        const parts = g.time.split(" ");
+        if (parts.length >= 2) {
+          const dateParts = parts[0].split(".");
+          const timeParts = parts[1].split(":");
+          if (dateParts.length >= 2 && timeParts.length >= 2) {
+             const d = new Date(currentYear, parseInt(dateParts[1]) - 1, parseInt(dateParts[0]), parseInt(timeParts[0]), parseInt(timeParts[1]));
+             if (!isNaN(d.getTime())) {
+               // Ensure we are in 2026 if requested
+               if (d.getFullYear() < 2026) d.setFullYear(2026);
+               startTime = d.toISOString();
+             }
+          }
+        }
       }
 
       return {
-        id: `scraped-${idx}`,
+        id: g.mid ? `scraped-${g.mid}` : `scraped-${idx}`,
         homeTeam: g.home,
         awayTeam: g.away,
         startTime,
@@ -69,7 +88,8 @@ export class UniversalAPIClient {
         home_pos: g.home_pos,
         away_pos: g.away_pos,
         home_record: g.home_record,
-        away_record: g.away_record
+        away_record: g.away_record,
+        fixture_mid: g.mid
       };
     });
   }
@@ -91,7 +111,8 @@ export class UniversalAPIClient {
    * UNIFIED RESULTS - Strictly Flashscore
    * (Expects results to be updated in the cache)
    */
-  async getUniversalResult(homeTeam: string, awayTeam: string): Promise<{ homeGoals: number; awayGoals: number; status: string; finished: boolean } | null> {
+  async getUniversalResult(homeTeam: string, awayTeam: string, mid?: string): Promise<{ homeGoals: number; awayGoals: number; status: string; finished: boolean } | null> {
+    // 1. Tentar Cache Local (FlashscoreScanner)
     const scrapedMatch = flashscoreScanner.findGame(homeTeam, awayTeam);
     if (scrapedMatch && (scrapedMatch as any).result) {
         const res = (scrapedMatch as any).result;
@@ -101,6 +122,23 @@ export class UniversalAPIClient {
             status: "FT",
             finished: true
         };
+    }
+    
+    // 2. Se temos MID, tentar Deep Scraping (para jogos que já saíram da lista principal)
+    if (mid) {
+        console.log(`[Shield] 🔍 DEEP SCAN: Verificando resultado para MID ${mid}...`);
+        const result = await flashscoreScanner.getGameResultById(mid);
+        if (result) {
+            const isFinished = result.status.includes("Terminado") || result.status.includes("Fim") || result.status === "FT" || result.status.includes("Encerrado");
+            const isVoid = result.status.includes("Adiado") || result.status.includes("Cancelado");
+            
+            return {
+                homeGoals: result.home,
+                awayGoals: result.away,
+                status: isVoid ? "VOID" : result.status,
+                finished: isFinished || isVoid
+            };
+        }
     }
     
     return null;

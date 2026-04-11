@@ -259,6 +259,28 @@ export async function removerApostaAcumulador(id: string): Promise<void> {
   if (error) throw new Error(`removerApostaAcumulador: ${error.message}`);
 }
 
+export async function getHistoricoCompleto(): Promise<any[]> {
+  const db = getServerClient();
+  
+  // Fetch from both tables
+  const [standard, accum] = await Promise.all([
+    db.from("historico_apostas").select("*").neq("resultado", "pending"),
+    db.from("acumulador_apostas").select("*").neq("resultado", "pending")
+  ]);
+
+  const combined = [
+    ...(standard.data || []).map(a => ({ ...a, type: 'standard' })),
+    ...(accum.data || []).map(a => ({ ...a, type: 'accumulator' }))
+  ];
+
+  // Sort by result date
+  return combined.sort((a, b) => {
+    const dA = new Date(a.data_resultado || a.criada_em || a.data_aposta).getTime();
+    const dB = new Date(b.data_resultado || b.criada_em || b.data_aposta).getTime();
+    return dA - dB;
+  });
+}
+
 
 // ============================================================
 // DAILY RESET (called by cron at midnight)

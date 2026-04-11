@@ -24,6 +24,7 @@ export interface FlashscoreGame {
   away_pos?: number;
   home_record?: string;
   away_record?: string;
+  mid?: string;
 }
 
 /**
@@ -69,6 +70,12 @@ export class FlashscoreScanner {
         return (gH.includes(hNorm) || hNorm.includes(gH)) && 
                (gA.includes(aNorm) || aNorm.includes(gA));
     }) || null;
+  }
+
+  public async getGameResultById(mid: string): Promise<{ home: number, away: number, status: string } | null> {
+     // Lazy import to avoid circular dependency
+     const { FlashscoreBot } = require("./flashscore-bot");
+     return await FlashscoreBot.getMatchResult(mid);
   }
 }
 

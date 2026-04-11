@@ -3,20 +3,20 @@
 // Generates a new accumulator bet for the active cycle
 // ============================================================
 
-import { NextResponse } from "next/server";
+import { NextResponse, NextRequest } from "next/server";
 import { AcumuladorEngine } from "@/lib/core/strategies";
 import { FlashscoreBot } from "@/lib/core/flashscore-bot";
 
 export const dynamic = "force-dynamic";
 
-export async function POST() {
+export async function POST(req: NextRequest) {
   console.log("DEBUG: POST /api/strategies/acumulador hit at " + new Date().toISOString());
   try {
-    // ⚠️ Scraper decoupled to Github Actions. Vercel only reads from Supabase!
-    // await FlashscoreBot.syncLiveGames();
+    const body = await req.json().catch(() => ({}));
+    const excludedIds = body.excludedIds || [];
 
     const engine = new AcumuladorEngine();
-    const aposta = await engine.gerarAcumulador();
+    const aposta = await engine.gerarAcumulador(excludedIds);
 
     return NextResponse.json({
       success: true,

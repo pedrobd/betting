@@ -61,15 +61,23 @@ export class AcumuladorEngine {
     };
   }
 
-  async gerarAcumulador(): Promise<AcumuladorAposta> {
-    const ciclo = await getCicloAtivo() ?? await criarCiclo(STAKE_INICIO);
-
-    console.log(`[Acumulador] 🚀 NATIVE 2026 FLASHSCORE MODE: Analyzing Real-World Data...`);
+  async gerarAcumulador(excludedIds: number[] = []): Promise<AcumuladorAposta> {
+    const cicloState = await this.getCicloState();
+    const ciclo = cicloState.ciclo;
     
+    if (ciclo.status !== "ativo") {
+       throw new Error("Não existe um ciclo ativo. Cria um novo ciclo da banca primeiro.");
+    }
+
     let eligible: UniversalFixture[] = [];
     try {
-        eligible = await universalShield.getActionableGames();
-        console.log(`[Shield] ✅ JOGOS_FLASHSCORE: ${eligible.length}`);
+        const allEligible = await universalShield.getActionableGames();
+        // Filter out blacklisted games
+        eligible = allEligible.filter(event => {
+            const fixtureId = parseInt(event.id.replace('scraped-', '')) || 0;
+            return !excludedIds.includes(fixtureId);
+        });
+        console.log(`[Shield] ✅ JOGOS_FLASHSCORE (Filtered): ${eligible.length}`);
     } catch (e: any) {
         console.error(`[Shield] ❌ ERRO_FLASHSCORE: ${e.message}`);
     }
@@ -92,25 +100,29 @@ export class AcumuladorEngine {
         if (!realOdd) continue;
 
         // --- ADVANCED 2026 METRICS FILTER ---
-        let confianca = 0.98; // Baseline for Under 5.5
+        let confianca = 0.99; // Baseline for Under 5.5
 
-        // 1. Avg Goals Filter
-        if (event.avg_goals && event.avg_goals > 4.5) {
-            console.log(`[Strategy] 🚫 SKIP: Extreme Avg Goals (${event.avg_goals}) for ${fixtureName}`);
+        // 1. Avg Goals Filter (Strict)
+        // Yellow threshold is 2.5, Red is 3.5 according to UI.
+        // We penalize anything above 2.5 to ensure they drop below 85% confidence if other metrics aren't perfect.
+        if (event.avg_goals && event.avg_goals > 3.5) {
+            console.log(`[Strategy] 🚫 SKIP: Risky Avg Goals (${event.avg_goals}) for ${fixtureName}`);
             continue; 
         }
-        if (event.avg_goals && event.avg_goals > 3.8) {
-            confianca *= 0.85; 
+        if (event.avg_goals && event.avg_goals > 2.5) {
+            confianca *= 0.85; // This will likely push it below the 0.85 threshold immediately
         }
 
         // 2. H2H Consistency Filter
-        if (event.h2h_un55_pct !== undefined && event.h2h_un55_pct < 0.90) {
+        if (event.h2h_un55_pct !== undefined && event.h2h_un55_pct < 0.95) {
              confianca *= 0.90;
         }
 
         // 3. Offensive Form Penalty
-        if (event.form && event.form.includes("WWWW")) {
-             confianca *= 0.95;
+        const hForm = event.form_home || event.form || "";
+        const aForm = event.form_away || "";
+        if (hForm.includes("WW") || aForm.includes("WW")) {
+             confianca *= 0.92;
         }
 
         if (confianca < 0.85) {
@@ -137,7 +149,8 @@ export class AcumuladorEngine {
           horario: displayTime,
           avg_goals: event.avg_goals,
           form: event.form,
-          h2h_un55_pct: event.h2h_un55_pct
+          h2h_un55_pct: event.h2h_un55_pct,
+          fixture_mid: event.fixture_mid
         });
 
         if (candidates.length >= MAX_SELECOES) break; 
@@ -211,7 +224,8 @@ export class AcumuladorEngine {
         horario: c.horario,
         avg_goals: c.avg_goals,
         form: c.form,
-        h2h_un55_pct: c.h2h_un55_pct
+        h2h_un55_pct: c.h2h_un55_pct,
+        fixture_mid: c.fixture_mid
       }));
       if (ciclo.stake_atual * oddTotal >= OBJETIVO || oddTotal >= 15) break;
     }
@@ -236,7 +250,11 @@ export class EVEngine {
       try {
         const oddsData = await universalShield.getOddsForUniversalFixture(event);
         const probs = this.estimarProbabilidadesNativas(event);
-        const markets: BetMarket[] = ["1", "2", "1X", "X2", "under_5.5", "over_1.5"];
+        
+        // CRITERIA: Only show games where the Home Team is the expected favorite
+        if (probs["1"] <= probs["2"]) continue;
+
+        const markets: BetMarket[] = ["1", "1X"];
 
         for (const m of markets) {
           const odd = oddsData[m];
@@ -275,20 +293,25 @@ export class EVEngine {
     // 1. Under 5.5 (Conservative Baseline)
     probs["under_5.5"] = avgGoals < 3.5 ? 0.98 : avgGoals < 4.5 ? 0.94 : 0.88;
 
-    // 2. Over 1.5 (Proportional to Avg Goals)
-    probs["over_1.5"] = avgGoals > 3.0 ? 0.88 : avgGoals > 2.2 ? 0.82 : 0.70;
+    // 2. Probabilidade Base (Baseada em Form e Posição)
+    const delta = (homeFormVal - awayFormVal) + ((event.away_pos || 10) - (event.home_pos || 10)) / 5;
 
-    // 3. Match Outcomes (Based on Form Delta)
-    const delta = homeFormVal - awayFormVal;
+    // Prob 1 (Vitória Casa) - Base mais alta para favoritos
+    const baseHome = 0.45;
+    probs["1"] = Math.max(0.1, Math.min(0.85, baseHome + (delta * 0.04)));
     
-    // Prob 1 (Home Win)
-    probs["1"] = 0.35 + (delta * 0.05);
-    // Prob 2 (Away Win)
-    probs["2"] = 0.30 - (delta * 0.05);
+    // Prob 2 (Vitória Fora)
+    const baseAway = 0.35;
+    probs["2"] = Math.max(0.1, Math.min(0.80, baseAway - (delta * 0.04)));
 
-    // 4. Double Chance (1X / X2)
-    probs["1X"] = Math.min(probs["1"] + 0.30, 0.92);
-    probs["X2"] = Math.min(probs["2"] + 0.30, 0.90);
+    // Prob X (Empate)
+    probs["X"] = Math.max(0.05, 1 - (probs["1"] + probs["2"]));
+
+    // 4. Double Chance (1X / X2 / 12)
+    // Usamos uma lógica mais agressiva para Elite Analytics (80%+)
+    probs["1X"] = Math.min(probs["1"] + probs["X"] * 0.8, 0.95);
+    probs["X2"] = Math.min(probs["2"] + probs["X"] * 0.8, 0.92);
+    probs["12"] = Math.min(probs["1"] + probs["2"], 0.90);
 
     return probs;
   }
@@ -398,5 +421,56 @@ export class RadarFavoritosEngine {
     const prob1X = Math.min(prob1 + probX, 0.98); // Cap double chance at 98%
 
     return { prob1, prob1X };
+  }
+}
+// ============================================================
+// PrevisaoEngine - High Confidence Resultados (80%+)
+// ============================================================
+
+export class PrevisaoEngine {
+  async getHighConfidenceResults(): Promise<EVOpportunity[]> {
+    const events = await universalShield.getActionableGames();
+    const results: EVOpportunity[] = [];
+    const evEngine = new EVEngine();
+
+    for (const event of events) {
+      try {
+        // Obter probabilidades heurísticas para todos os mercados
+        const probs = (evEngine as any).estimarProbabilidadesNativas(event);
+        
+        const markets: BetMarket[] = ["1", "2", "1X", "X2"];
+        const oddsData = await universalShield.getOddsForUniversalFixture(event);
+
+        for (const m of markets) {
+          const prob = probs[m] || 0;
+          
+          if (prob >= 0.80) {
+            const odd = oddsData[m] || 0;
+            
+            // Agora dependemos apenas de ODDS REAIS da Betano/Flashscore
+            // Se a odd for 0, não mostramos no Dashboard Elite para manter a qualidade
+            if (odd > 0) {
+              results.push({
+                fixture_id: parseInt(event.id.replace('scraped-', '')) || 0,
+                jogo: `${event.homeTeam} vs ${event.awayTeam}`,
+                market: m,
+                liga: event.league ?? "Liga",
+                odd: odd,
+                probabilidade: prob,
+                ev: (prob * odd) - 1,
+                sugestao: this.getSugestaoConfianca(prob)
+              });
+            }
+          }
+        }
+      } catch { continue; }
+    }
+    return results.sort((a, b) => b.probabilidade - a.probabilidade);
+  }
+
+  private getSugestaoConfianca(prob: number): string {
+    if (prob >= 0.90) return "Certeza Estatística 💎";
+    if (prob >= 0.85) return "Confiança Extrema ⭐";
+    return "Alta Probabilidade ✨";
   }
 }

@@ -12,6 +12,7 @@ import {
 } from "@/lib/core/database";
 import { AcumuladorEngine } from "@/lib/core/strategies";
 import { universalShield } from "@/lib/core/universal-api";
+import { telegramService } from "@/lib/core/telegram";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // 5 min timeout (Vercel Pro)
@@ -57,7 +58,15 @@ export async function GET(req: NextRequest) {
           const away = names[1];
 
           // Use the Universal Shield to find the result across ALL APIs
-          const result = await universalShield.getUniversalResult(home, away);
+          const result = await universalShield.getUniversalResult(home, away, (sel as any).fixture_mid);
+
+          // Handle VOID (Postponed/Cancelled)
+          if (result && result.status === "VOID") {
+            log.push(`⚠️ ${sel.jogo}: Adiado/Cancelado. Aposta anulada (VOID).`);
+            // Custom logic for VOID can be added here (e.g., skip this selection)
+            // For now, let's treat it as a special case that doesn't cause a loss.
+            continue; 
+          }
 
           // Skip if match is still in progress
           if (!result || !result.finished) {
@@ -97,12 +106,20 @@ export async function GET(req: NextRequest) {
           // At least one selection failed -> LOSS
           await engine.resolverAposta(aposta.id, "loss");
           log.push(`💥 Acumulador #${aposta.id.slice(0, 8)} resolvido como LOSS. Motivo: ${details.join(", ")}`);
+          
+          // Notificar Telegram
+          await telegramService.sendMessage(`❌ *ACUMULADOR PERDIDO*\n\nMotivo: ${details.join("\n")}\n\n_Banca e ciclo atualizados._`);
+          
           updated++;
         }
         else if (allFinished) {
           // All selections finished and all won -> WIN
           await engine.resolverAposta(aposta.id, "win");
-          log.push(`🏆 Acumulador #${aposta.id.slice(0, 8)} resolvido como WIN! Detalhes: ${details.join(", ")}`);
+          log.push(`💰 Acumulador #${aposta.id.slice(0, 8)} resolvido como WIN! Motivo: ${details.join(", ")}`);
+          
+          // Notificar Telegram
+          await telegramService.sendMessage(`💰 *ACUMULADOR GANHO!* 💰\n\n${details.join("\n")}\n\n_Banca e ciclo atualizados com lucro._`);
+          
           updated++;
         }
         else {

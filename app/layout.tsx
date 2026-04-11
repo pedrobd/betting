@@ -5,14 +5,14 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
 export const metadata: Metadata = {
-  title: "Betano Engine | Análise Quantitativa de Apostas",
+  title: "COOLBET Analytics | Elite Betting Intelligence",
   description:
-    "Motor de análise de apostas com gestão de banca integrada — Kelly Criterion, Dutching e estratégias live.",
+    "Inteligência quantitativa para apostas desportivas com gestão de banca profissional e estratégias de alta precisão.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="pt" className={inter.variable} suppressHydrationWarning>
+    <html lang="pt" suppressHydrationWarning>
       <body suppressHydrationWarning>{children}</body>
     </html>
   );
