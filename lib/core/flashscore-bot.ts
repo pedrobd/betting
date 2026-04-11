@@ -58,11 +58,32 @@ export class FlashscoreBot {
                     }
 
                     if (mid) {
+                        // Better time parsing
+                        let processedTime = time;
+                        const dateMatch = time.match(/(\d{2})\/(\d{2})/);
+                        const hourMatch = time.match(/(\d{2}):(\d{2})/);
+                        
+                        // Check if it's a live game (contains minutes ' or stage identifiers)
+                        const isLive = time.includes("'") || time.includes("+") || 
+                                       time.includes("Intervalo") || time.includes("LIVE") ||
+                                       (time.split(' ').length === 1 && !hourMatch && !dateMatch);
+
+                        if (isLive) {
+                            processedTime = "LIVE";
+                        } else if (dateMatch) {
+                            // Format: DD/MM HH:MM -> DD/MM/2026 HH:MM
+                            processedTime = `${dateMatch[1]}/${dateMatch[2]}/2026`;
+                            if (hourMatch) processedTime += ` ${hourMatch[0]}`;
+                        } else if (hourMatch) {
+                            // Format: HH:MM (Today) -> 11/04/2026 HH:MM
+                            processedTime = `11/04/2026 ${hourMatch[0]}`;
+                        }
+
                         results.push({
                             mid: mid,
                             home: homeEl.textContent.trim(),
                             away: awayEl.textContent.trim(),
-                            time: time,
+                            time: processedTime,
                             league: currentLeague,
                         });
                     }
@@ -98,6 +119,9 @@ export class FlashscoreBot {
         const tempoNorm = (g.time || "").toLowerCase();
         const ligaNorm = (g.league || "").toLowerCase().trim();
 
+        // 🛡️ REJECT LIVE GAMES for Accumulator safety
+        if (tempoNorm === "live" || tempoNorm.includes("'") || tempoNorm.includes("+")) return false;
+
         // Excluir terminados
         if (tempoNorm.includes("terminado") || tempoNorm.includes("encerrado") || tempoNorm === "fim") return false;
         
@@ -129,12 +153,11 @@ export class FlashscoreBot {
       for (const game of topGames) {
           try {
               // Passo 1: Navegar para a página do jogo DE FORMA ROBUSTA
-              // Em vez de ir direto (que o Flashscore bloqueia), vamos tentar um link que funcione
               const matchUrl = `https://www.flashscore.pt/jogo/${game.mid}/#/resumo-de-jogo`;
               await page.goto(matchUrl, { waitUntil: 'networkidle2', timeout: 20000 });
               await new Promise(r => setTimeout(r, 2000));
 
-              // Tentar clicar na aba "Classificações" (que agora costuma estar visível no topo)
+              // 1.1. Tentar clicar na aba "Classificações"
               const tabClicked = await page.evaluate(() => {
                 const tabs = Array.from(document.querySelectorAll('a'));
                 const tab = tabs.find(el => el.textContent?.trim() === 'Classificações');
@@ -171,44 +194,85 @@ export class FlashscoreBot {
 
                     for (const row of rawRows) {
                         const rName = row.name.toLowerCase();
-                    const isHome = rName.includes(hNorm) || hNorm.includes(rName);
-                    const isAway = rName.includes(aNorm) || aNorm.includes(rName);
+                        const isHome = rName.includes(hNorm) || hNorm.includes(rName);
+                        const isAway = rName.includes(aNorm) || aNorm.includes(rName);
 
-                    if (isHome && stats.homePos === 0) {
-                        stats.homePos = parseInt(row.rank) || 5;
-                        stats.homeForm = toForm(row.formLetters);
-                        const parts = row.goals.split(':');
-                        if (parts.length === 2) {
-                            const g = parseInt(parts[0]);
-                            const s = parseInt(parts[1]);
-                            if (!isNaN(g) && !isNaN(s)) {
-                                totalG += (g + s);
-                                totalJ += (row.played || 1);
+                        if (isHome && stats.homePos === 0) {
+                            stats.homePos = parseInt(row.rank) || 5;
+                            stats.homeForm = toForm(row.formLetters);
+                            const parts = row.goals.split(':');
+                            if (parts.length === 2) {
+                                const g = parseInt(parts[0]);
+                                const s = parseInt(parts[1]);
+                                if (!isNaN(g) && !isNaN(s)) {
+                                    totalG += (g + s);
+                                    totalJ += (row.played || 1);
+                                }
+                            }
+                        }
+                        if (isAway && stats.awayPos === 0) {
+                            stats.awayPos = parseInt(row.rank) || 12;
+                            stats.awayForm = toForm(row.formLetters);
+                            const parts = row.goals.split(':');
+                            if (parts.length === 2) {
+                                const g = parseInt(parts[0]);
+                                const s = parseInt(parts[1]);
+                                if (!isNaN(g) && !isNaN(s)) {
+                                    totalG += (g + s);
+                                    totalJ += (row.played || 1);
+                                }
                             }
                         }
                     }
-                    if (isAway && stats.awayPos === 0) {
-                        stats.awayPos = parseInt(row.rank) || 12;
-                        stats.awayForm = toForm(row.formLetters);
-                        const parts = row.goals.split(':');
-                        if (parts.length === 2) {
-                            const g = parseInt(parts[0]);
-                            const s = parseInt(parts[1]);
-                            if (!isNaN(g) && !isNaN(s)) {
-                                totalG += (g + s);
-                                totalJ += (row.played || 1);
-                            }
-                        }
-                    }
+                    if (totalJ > 0) stats.avgGoals = parseFloat((totalG / totalJ).toFixed(2));
+                } catch (e) {
+                   console.warn(`[FlashscoreBot] ! Falha ao ler classificações: ${e}`);
                 }
-                if (totalJ > 0) stats.avgGoals = parseFloat((totalG / totalJ).toFixed(2));
-            } catch (e) {
-               console.warn(`[FlashscoreBot] ! Falha ao ler classificações: ${e}`);
-            }
-          }
+              }
               
               if (!stats.homePos) stats.homePos = 8;
               if (!stats.awayPos) stats.awayPos = 12;
+              
+              // 1.5. Extrair NOTÍCIAS e AUSÊNCIAS (Para cálculo interno)
+              let newsText = "";
+              let missingPlayersText = "";
+
+              try {
+                  // Voltar para Resumo se necessário
+                  await page.evaluate(() => {
+                      const resTab = Array.from(document.querySelectorAll('a')).find(el => el.textContent?.includes('Resumo'));
+                      if (resTab) (resTab as HTMLElement).click();
+                  });
+                  await new Promise(r => setTimeout(r, 1000));
+
+                  // Capturar Sumário/Previsão
+                  const summaryData = await page.evaluate(async () => {
+                      const showMore = Array.from(document.querySelectorAll('div, span, a')).find(el => el.textContent?.includes('Mostrar antevisão') || el.textContent?.includes('Show more preview'));
+                      if (showMore instanceof HTMLElement) showMore.click();
+                      await new Promise(r => setTimeout(r, 800));
+                      const previewEl = document.querySelector('div[class*="preview_"]');
+                      return previewEl?.textContent?.trim() || "";
+                  });
+                  newsText = summaryData;
+
+                  // Capturar Ausências (Tab Formações)
+                  const lineUpsTab = await page.evaluate(() => {
+                      const tabs = Array.from(document.querySelectorAll('a'));
+                      const tab = tabs.find(el => el.textContent?.trim() === 'Formações' || el.textContent?.trim() === 'Lineups');
+                      if (tab) { (tab as HTMLElement).click(); return true; }
+                      return false;
+                  });
+
+                  if (lineUpsTab) {
+                      await new Promise(r => setTimeout(r, 1500));
+                      missingPlayersText = await page.evaluate(() => {
+                          const absenceEls = Array.from(document.querySelectorAll('div[class*="absence_"]'));
+                          return absenceEls.map(el => el.textContent?.trim()).join(" | ");
+                      });
+                  }
+              } catch (e) {
+                  console.warn(`[FlashscoreBot] ! Falha ao ler notícias para ${game.home}`);
+              }
               
               // 2. Extrair ODDS REAIS (Betano)
               const realOdds: Record<string, number> = {}; 
@@ -312,10 +376,21 @@ export class FlashscoreBot {
                                   const has45 = textLower.includes('4.5');
 
                                   if (has55 || has45) {
+                                      // Be extremely specific: Flashscore O/U table has columns. 
+                                      // Column 0: Bookmaker
+                                      // Column 1: Line (sometimes merged)
+                                      // Column 2: Over Odd
+                                      // Column 3: Under Odd
                                       const oddElements = Array.from(row.querySelectorAll('.oddsCell__odd, .wcl-oddsValue_X4_M8, [class*="oddsValue"]'));
-                                      if (oddElements.length >= 1) {
-                                          const val = parseFloat(oddElements[oddElements.length - 1].textContent?.trim().replace(',', '.') || "0");
-                                          if (!isNaN(val) && val > 1.0) {
+                                      
+                                      // If we have at least 2 odd cells, the last one is the Menos de (Under)
+                                      if (oddElements.length >= 2) {
+                                          const underIndex = oddElements.length - 1;
+                                          const oddText = oddElements[underIndex].textContent?.trim().replace(',', '.') || "";
+                                          const val = parseFloat(oddText);
+
+                                          // Validate that we didn't pick up a line number (like 5.5) as an odd
+                                          if (!isNaN(val) && val > 1.0 && val < 5.0) {
                                               const key = has55 ? 'under_5.5' : 'under_4.5';
                                               results[key] = val;
                                           }

@@ -21,6 +21,8 @@ export interface UniversalFixture {
   home_record?: string;
   away_record?: string;
   fixture_mid?: string;
+  news_preview?: string;
+  absences?: string;
 }
 
 /**
@@ -55,7 +57,20 @@ export class UniversalAPIClient {
         if (g.time && g.time.includes(":") && g.time.length <= 5) {
           startTime = `${today}T${g.time}:00Z`;
         } 
-        // Format 2: DD.MM. HH:mm (project to 2026)
+        // Format 2: DD/MM/YYYY HH:mm (Our new scraper format)
+        else if (g.time && g.time.includes("/") && g.time.includes(":")) {
+          const parts = g.time.split(" ");
+          if (parts.length >= 2) {
+            const dateParts = parts[0].split("/");
+            const timeParts = parts[1].split(":");
+            if (dateParts.length >= 2 && timeParts.length >= 2) {
+                const year = dateParts.length === 3 ? parseInt(dateParts[2]) : 2026;
+                const d = new Date(year, parseInt(dateParts[1]) - 1, parseInt(dateParts[0]), parseInt(timeParts[0]), parseInt(timeParts[1]));
+                if (!isNaN(d.getTime())) startTime = d.toISOString();
+            }
+          }
+        }
+        // Format 3: DD.MM. HH:mm (legacy check)
         else if (g.time && g.time.includes(".") && g.time.includes(":")) {
           const parts = g.time.split(" ");
           if (parts.length >= 2) {
@@ -64,7 +79,6 @@ export class UniversalAPIClient {
             if (dateParts.length >= 2 && timeParts.length >= 2) {
                const d = new Date(currentYear, parseInt(dateParts[1]) - 1, parseInt(dateParts[0]), parseInt(timeParts[0]), parseInt(timeParts[1]));
                if (!isNaN(d.getTime())) {
-                 // Ensure we are in 2026 if requested
                  if (d.getFullYear() < 2026) d.setFullYear(2026);
                  startTime = d.toISOString();
                }
@@ -90,7 +104,9 @@ export class UniversalAPIClient {
           away_pos: g.away_pos,
           home_record: g.home_record,
           away_record: g.away_record,
-          fixture_mid: g.mid
+          fixture_mid: g.mid,
+          news_preview: g.news_preview,
+          absences: g.absences
         };
       } catch (e) {
         console.warn(`[Shield] ⚠️ Error mapping game ${g.home} vs ${g.away}:`, e);

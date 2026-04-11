@@ -94,54 +94,80 @@ export class AcumuladorEngine {
         const fixtureName = `${event.homeTeam} vs ${event.awayTeam}`;
         const oddsData = await universalShield.getOddsForUniversalFixture(event);
         
-        // Priority Market: Under 5.5 (Max Safety Strategy)
-        let market: BetMarket = "under_5.5";
+        // Dedicated Under 4.5 Strategy
+        const market: BetMarket = "under_4.5";
         let realOdd = oddsData[market];
         
-        // Fallback: If 5.5 is missing, try 4.5
         if (!realOdd || realOdd <= 1.0) {
-            market = "under_4.5";
-            realOdd = oddsData[market];
-        }
-        
-        if (!realOdd || realOdd <= 1.0) {
-            console.log(`[Strategy] ⚠️ SKIP: Missing real odds (5.5 or 4.5) for ${fixtureName}`);
+            console.log(`[Strategy] ⚠️ SKIP: Missing Under 4.5 odds for ${fixtureName}`);
             continue;
         }
 
-        // --- ADVANCED 2026 METRICS FILTER ---
-        let confianca = 0.99; // Baseline for Safe Under markets
+        // --- INTELLIGENT NEWS ANALYSIS (INTERNAL ONLY) ---
+        let confianca = 0.99; // Base confidence for Ultra-Safe markets
         
-        if (market === "under_4.5") {
-            confianca *= 0.95; // Slightly less confidence for tighter line
+        // 1. Injuries & Absences Impact
+        const news = (event.news_preview || "").toLowerCase();
+        const absences = (event.absences || "").toLowerCase();
+        const combinedNews = `${news} ${absences}`;
+        
+        // Keywords for Strike-power reduction (Good for UNDER)
+        const strikerKeywords = ["goleador", "artilheiro", "marcador", "avançado", "scorer", "striker", "top scorer"];
+        const injuryKeywords = ["lesionado", "ausente", "castigado", "fora", "baixa", "injured", "out", "missing"];
+        
+        let hasStrikerMissing = false;
+        strikerKeywords.forEach(k => {
+            if (combinedNews.includes(k)) {
+                if (injuryKeywords.some(i => combinedNews.includes(i))) {
+                    hasStrikerMissing = true;
+                }
+            }
+        });
+
+        if (hasStrikerMissing) {
+            console.log(`[Strategy] 📰 POSITIVE NEWS for ${fixtureName}: Missing Striker detected.`);
+            confianca += 0.05; // Confidence boost for Under
         }
 
-        // 1. Avg Goals Filter (Strict)
-        // Yellow threshold is 2.5, Red is 3.5 according to UI.
-        const maxGoals = market === "under_5.5" ? 3.5 : 2.5;
-        // We penalize anything above maxGoals to ensure they drop below 85% confidence if other metrics aren't perfect.
+        // Keywords for Defensive-power reduction (Bad for UNDER)
+        const defenseKeywords = ["guarda-redes", "defesa", "central", "lateral", "goalkeeper", "defender"];
+        let hasDefenseMissing = false;
+        defenseKeywords.forEach(k => {
+            if (combinedNews.includes(k)) {
+                if (injuryKeywords.some(i => combinedNews.includes(i))) {
+                    hasDefenseMissing = true;
+                }
+            }
+        });
+
+        if (hasDefenseMissing) {
+            console.log(`[Strategy] 📰 NEGATIVE NEWS for ${fixtureName}: Missing Defender/GK detected.`);
+            confianca -= 0.10; // Significant penalty for defense risk
+        }
+
+        // 2. Avg Goals Filter (Safety threshold for Under 4.5)
+        const maxGoals = 2.5;
         if (event.avg_goals && event.avg_goals > maxGoals) {
-            console.log(`[Strategy] 🚫 SKIP: Risky Avg Goals (${event.avg_goals}) for ${fixtureName} (Market: ${market})`);
+            console.log(`[Strategy] 🚫 SKIP: Risky Avg Goals (${event.avg_goals}) for ${fixtureName}`);
             continue;
         } 
-        if (event.avg_goals && event.avg_goals > 2.5) {
-            confianca *= 0.85; // This will likely push it below the 0.85 threshold immediately
+        
+        // 3. H2H Consistency Filter
+        if (event.h2h_un55_pct !== undefined && event.h2h_un55_pct < 0.90) {
+             confianca *= 0.90; // Slightly more permissive for 4.5
         }
 
-        // 2. H2H Consistency Filter
-        if (event.h2h_un55_pct !== undefined && event.h2h_un55_pct < 0.95) {
-             confianca *= 0.90;
-        }
-
-        // 3. Offensive Form Penalty
+        // 4. Offensive Form Penalty (Slightly softer)
         const hForm = event.form_home || event.form || "";
         const aForm = event.form_away || "";
-        if (hForm.includes("WW") || aForm.includes("WW")) {
-             confianca *= 0.92;
+        if (hForm.includes("WWW") || aForm.includes("WWW")) {
+             confianca *= 0.90; // Only heavy penalty for 3+ consecutive wins
+        } else if (hForm.includes("WW") || aForm.includes("WW")) {
+             confianca *= 0.95; 
         }
 
-        if (confianca < 0.85) {
-            console.log(`[Strategy] 🛡️ REJECTED (Unsafe): ${fixtureName} (Confidence: ${confianca.toFixed(2)})`);
+        if (confianca < 0.75) {
+            console.log(`[Strategy] 🛡️ REJECTED (Unsafe/News): ${fixtureName} (Confidence: ${confianca.toFixed(2)})`);
             continue;
         }
 
