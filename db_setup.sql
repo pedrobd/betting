@@ -20,3 +20,15 @@ CREATE TABLE IF NOT EXISTS bet_slips (
   status text NOT NULL DEFAULT 'PENDING',
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
+-- Cria a Tabela de Previsões (Onde o teu scraper local guarda os jogos)
+CREATE TABLE IF NOT EXISTS betting_predictions (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  team_home text NOT NULL,
+  team_away text NOT NULL,
+  odd numeric NOT NULL,
+  time text NOT NULL,
+  confidence integer NOT NULL,
+  reasoning text,
+  session_id text,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);

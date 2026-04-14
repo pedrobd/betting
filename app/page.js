@@ -201,9 +201,18 @@ export default function Home() {
           <div className="header-brand">
             🦊 <span>Bet</span>Mask
           </div>
-          <div style={{ backgroundColor: 'var(--bg-panel)', padding: '12px 24px', borderRadius: 'var(--radius-btn)', border: '1px solid var(--border-light)', display: 'flex', alignItems: 'center', gap: '12px' }}>
-             <span style={{ color: 'var(--text-secondary)', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '1px' }}>Wallet</span>
-             <strong style={{ color: 'var(--text-primary)', fontSize: '18px' }}>{wallet.toFixed(2)} EUR</strong>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            <button 
+              onClick={initData} 
+              disabled={loading}
+              style={{ background: 'transparent', border: 'none', color: 'var(--mm-orange)', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}
+            >
+              {loading ? 'SYNCING...' : '🔄 SYNC'}
+            </button>
+            <div style={{ backgroundColor: 'var(--bg-panel)', padding: '12px 24px', borderRadius: 'var(--radius-btn)', border: '1px solid var(--border-light)', display: 'flex', alignItems: 'center', gap: '12px' }}>
+               <span style={{ color: 'var(--text-secondary)', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '1px' }}>Wallet</span>
+               <strong style={{ color: 'var(--text-primary)', fontSize: '18px' }}>{wallet.toFixed(2)} EUR</strong>
+            </div>
           </div>
         </header>
 
@@ -215,10 +224,18 @@ export default function Home() {
           </div>
         )}
 
-        {!loading && matches.length === 0 && session != null && (
-          <div className="card fade-in" style={{textAlign: "center", marginTop: "40px", borderStyle: 'dashed'}}>
-            <h3 style={{ margin: '0 0 10px 0' }}>0 Opportunities Found</h3>
-            <p style={{ color: 'var(--text-secondary)', margin: 0 }}>No favorite matches found passing the strict smart contract conditions.</p>
+        {!loading && matches.length === 0 && (
+          <div className="card fade-in" style={{textAlign: "center", marginTop: "80px", borderStyle: 'dashed', padding: '40px'}}>
+            <div style={{ fontSize: '48px', marginBottom: '20px' }}>🔍</div>
+            <h3 style={{ margin: '0 0 10px 0' }}>No Pools Detected</h3>
+            <p style={{ color: 'var(--text-secondary)', marginBottom: '30px' }}>The network is currently empty or blocked. Try a manual sync.</p>
+            <button 
+              className="btn-mm" 
+              onClick={initData}
+              style={{ padding: '12px 24px', width: 'auto' }}
+            >
+              Sync Network Assets
+            </button>
           </div>
         )}
 
