@@ -47,11 +47,14 @@ export default function Home() {
       
       if (data.success) {
         setSession(data.sessionId);
-        // Proteção contra duplicados: Filtra jogos com as mesmas equipas
+        // Proteção contra duplicados e jogos passados
         const seen = new Set();
         const unique = (data.matches || []).filter(m => {
           const key = `${m.team_home}-${m.team_away}`;
-          if (seen.has(key)) return false;
+          const isFinished = (m.time || "").toLowerCase().includes('term') || (m.time || "").toLowerCase().includes('fin');
+          const isLive = (m.time || "").toLowerCase().includes('ao vivo') || (m.time || "").toLowerCase().includes('int');
+          
+          if (seen.has(key) || isFinished || isLive) return false;
           seen.add(key);
           return true;
         });
@@ -83,7 +86,10 @@ export default function Home() {
         const seen = new Set();
         const unique = combined.filter(m => {
           const key = `${m.team_home}-${m.team_away}`;
-          if (seen.has(key)) return false;
+          const isFinished = (m.time || "").toLowerCase().includes('term') || (m.time || "").toLowerCase().includes('fin');
+          const isLive = (m.time || "").toLowerCase().includes('ao vivo') || (m.time || "").toLowerCase().includes('int');
+          
+          if (seen.has(key) || isFinished || isLive) return false;
           seen.add(key);
           return true;
         });
