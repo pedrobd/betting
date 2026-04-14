@@ -120,8 +120,113 @@ h1, h2, h3, h4 {
   color: white;
 }
 
-.fade-in {
-  animation: fadeIn 0.4s ease-out forwards;
+/* Layout Responsivo */
+.app-container {
+  display: flex;
+  min-height: 100vh;
+  background-color: var(--bg-main);
+  position: relative;
+}
+
+.feed-container {
+  flex: 1;
+  padding: 40px 20px;
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.header {
+  display: flex; 
+  justify-content: space-between; 
+  align-items: center; 
+  margin-bottom: 40px;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.wallet-badge {
+  background-color: var(--bg-panel);
+  padding: 12px 24px;
+  border-radius: var(--radius-btn);
+  border: 1px solid var(--border-light);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.toast-mm {
+  position: fixed;
+  bottom: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: white;
+  padding: 16px 32px;
+  border-radius: 100px;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+  zIndex: 9999;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  animation: toastFadeIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.toast-mm.success { background-color: var(--mm-green); }
+.toast-mm.error { background-color: var(--mm-red); }
+
+.sidebar {
+  width: 380px; 
+  background-color: var(--bg-panel); 
+  border-left: 1px solid var(--border-light); 
+  padding: 0; 
+  display: flex; 
+  flex-direction: column; 
+  position: sticky; 
+  top: 0; 
+  height: 100vh;
+}
+
+@media (max-width: 1024px) {
+  .app-container {
+    flex-direction: column;
+  }
+  
+  aside {
+    width: 100% !important;
+    height: auto !important;
+    position: relative !important;
+    border-left: none !important;
+    border-top: 1px solid var(--border-light);
+  }
+  
+  .feed-container {
+    padding: 20px;
+  }
+}
+
+@media (max-width: 640px) {
+  .header {
+    flex-direction: column;
+    gap: 20px;
+    align-items: flex-start;
+  }
+  
+  .header-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+  
+  .sync-status {
+    display: none; /* Esconder detalhes técnicos no mobile para poupar espaço */
+  }
+
+  .card h3 {
+    font-size: 16px;
+  }
 }
 
 @keyframes fadeIn {

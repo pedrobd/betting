@@ -202,7 +202,7 @@ export default function Home() {
   };
 
   return (
-    <div className="layout-container" style={{ display: 'flex', minHeight: '100vh', backgroundColor: 'var(--bg-main)', position: 'relative' }}>
+    <div className="app-container">
       
       {/* Toast Notification Premium */}
       {toast && (
@@ -219,14 +219,14 @@ export default function Home() {
       )}
       
       {/* Esquerda: Feed de Jogos */}
-      <div className="feed-container" style={{ flex: 1, padding: '40px 20px', maxWidth: '800px', margin: '0 auto' }}>
-        <header className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '40px' }}>
+      <div className="feed-container">
+        <header className="header">
           <div className="header-brand">
             🦊 <span>Bet</span>Mask
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+          <div className="header-actions">
             {matches.length > 0 && (
-              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', backgroundColor: 'rgba(255,255,255,0.05)', padding: '4px 8px', borderRadius: '4px' }}>
+              <span className="sync-status" style={{ fontSize: '11px', color: 'var(--text-secondary)', backgroundColor: 'rgba(255,255,255,0.05)', padding: '4px 8px', borderRadius: '4px' }}>
                 📡 CLOUD SYNC: {new Date(matches[0].created_at).toLocaleTimeString()}
               </span>
             )}
@@ -237,7 +237,7 @@ export default function Home() {
             >
               {loading ? 'SYNCING...' : '🔄 SYNC'}
             </button>
-            <div style={{ backgroundColor: 'var(--bg-panel)', padding: '12px 24px', borderRadius: 'var(--radius-btn)', border: '1px solid var(--border-light)', display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div className="wallet-badge">
                <span style={{ color: 'var(--text-secondary)', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '1px' }}>Wallet</span>
                <strong style={{ color: 'var(--text-primary)', fontSize: '18px' }}>{wallet.toFixed(2)} EUR</strong>
             </div>
@@ -330,7 +330,7 @@ export default function Home() {
       </div>
 
       {/* Direita: A Sidebar Flutuante do Boletim Tipo Metamask */}
-      <div className="sidebar-slip" style={{ width: '380px', backgroundColor: 'var(--bg-panel)', borderLeft: '1px solid var(--border-light)', position: 'sticky', top: 0, height: '100vh', display: 'flex', flexDirection: 'column', boxShadow: '-10px 0 30px rgba(0,0,0,0.5)' }}>
+      <aside className="sidebar">
          
          {/* TABS HEADER */}
          <div style={{ display: 'flex', borderBottom: '1px solid var(--border-light)' }}>
@@ -500,7 +500,7 @@ export default function Home() {
               </button>
            </div>
          )}
-      </div>
+      </aside>
       <style dangerouslySetInnerHTML={{__html: `
         @keyframes spin { 100% { transform: rotate(360deg); } }
       `}} />
