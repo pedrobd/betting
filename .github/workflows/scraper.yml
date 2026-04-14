@@ -1,0 +1,29 @@
+name: Autonomous BetMask Scraper
+
+on:
+  schedule:
+    - cron: '0 * * * *' # Corre a cada hora
+  workflow_dispatch: # Permite correr manualmente no GitHub
+
+jobs:
+  sync_matches:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Setup Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Run Cloud Sync
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          CI: 'true'
+        run: node cloud_sync.js
