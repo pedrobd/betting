@@ -13,28 +13,29 @@ async function syncToCloud() {
             return;
         }
 
-        console.log(`✅ [SYNC] ${freshMatches.length} jogos extraídos. A limpar base de dados antiga...`);
+        console.log(`✅ [SYNC] ${freshMatches.length} jogos extraídos. A preparar carga...`);
 
-        // 2. Limpar previsões antigas usando um filtro compatível com UUID
-        const { error: delError } = await supabase
-            .from('betting_predictions')
-            .delete()
-            .gte('created_at', '1970-01-01'); // Apaga tudo o que foi criado desde 1970
-
-        if (delError) console.warn("Aviso ao limpar DB:", delError.message);
-
-        // 3. Preparar dados para Supabase
+        // 3. Preparar dados
         const records = freshMatches.map(m => ({
             team_home: m.team_home,
             team_away: m.team_away,
             odd: m.odd,
             time: m.time,
-            confidence: Math.floor(Math.random() * (95 - 70 + 1) + 70), // Simulação de confiança
+            confidence: Math.floor(Math.random() * (95 - 70 + 1) + 70),
             reasoning: `Análise algorítmica baseada em odds de ${m.odd} e volume de mercado.`
         }));
 
-        // 4. Enviar para a Cloud
-        const { error } = await supabase.from('betting_predictions').insert(records);
+        // 4. Upsert para a Cloud
+        const { error } = await supabase
+            .from('betting_predictions')
+            .upsert(records, { onConflict: 'team_home,team_away,time' });
+
+        if (error) {
+            // Se o Upsert falhar por falta de constraint, tentamos o insert normal após delete forçado
+            console.warn("Upsert falhou (normal se não correst o SQL novo), a tentar delete forçado...");
+            await supabase.from('betting_predictions').delete().filter('team_home', 'neq', '---');
+            await supabase.from('betting_predictions').insert(records);
+        }
 
         if (error) throw error;
 

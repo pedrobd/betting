@@ -30,5 +30,6 @@ CREATE TABLE IF NOT EXISTS betting_predictions (
   confidence integer NOT NULL,
   reasoning text,
   session_id text,
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
+  CONSTRAINT unique_match UNIQUE (team_home, team_away, time)
 );

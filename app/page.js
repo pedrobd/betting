@@ -47,12 +47,20 @@ export default function Home() {
       
       if (data.success) {
         setSession(data.sessionId);
-        setMatches(data.matches.slice(0, 10)); 
+        // Proteção contra duplicados: Filtra jogos com as mesmas equipas
+        const seen = new Set();
+        const unique = (data.matches || []).filter(m => {
+          const key = `${m.team_home}-${m.team_away}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        setMatches(unique.slice(0, 10)); 
       } else {
-        showToast("Server Erro: " + data.error, "error");
+        showToast("Server Sync Error", "error");
       }
     } catch(e) {
-      showToast("Critical Fetch Erro: " + e.message, "error");
+      showToast("Network Ping Failed", "error");
     }
     setLoading(false);
   };
