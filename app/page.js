@@ -273,8 +273,11 @@ export default function Home() {
                 style={{ animationDelay: `${idx * 0.05}s`, cursor: 'pointer' }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                  <span style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: '600', letterSpacing: '0.5px' }}>
-                    {m.time} • NETWORK PING OK
+                  <span style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: '600', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ color: 'var(--mm-orange)' }}>●</span> 
+                    {m.time.includes(':') ? `HOJE ÀS ${m.time}` : m.time.toUpperCase()} 
+                    <span style={{ color: 'rgba(255,255,255,0.2)' }}>|</span>
+                    {new Date(m.created_at).toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit' })}
                   </span>
                   <div className={`badge-odd ${isSelected ? 'selected' : ''}`}>
                      {m.odd.toFixed(2)}x
