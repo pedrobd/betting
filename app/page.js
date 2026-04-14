@@ -78,7 +78,16 @@ export default function Home() {
       const data = await res.json();
       
       if (data.success && data.matches.length > 0) {
-        setMatches([...matches, ...data.matches]); 
+        // Unir com os atuais e remover duplicados por segurança
+        const combined = [...matches, ...data.matches];
+        const seen = new Set();
+        const unique = combined.filter(m => {
+          const key = `${m.team_home}-${m.team_away}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        setMatches(unique); 
         setOffset(nextOffset);
       } else {
         showToast("No more pools available.", "error");
