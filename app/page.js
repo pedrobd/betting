@@ -201,7 +201,12 @@ export default function Home() {
           <div className="header-brand">
             🦊 <span>Bet</span>Mask
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+            {matches.length > 0 && (
+              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', backgroundColor: 'rgba(255,255,255,0.05)', padding: '4px 8px', borderRadius: '4px' }}>
+                📡 CLOUD SYNC: {new Date(matches[0].created_at).toLocaleTimeString()}
+              </span>
+            )}
             <button 
               onClick={initData} 
               disabled={loading}

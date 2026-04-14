@@ -15,9 +15,13 @@ async function syncToCloud() {
 
         console.log(`✅ [SYNC] ${freshMatches.length} jogos extraídos. A limpar base de dados antiga...`);
 
-        // 2. Limpar previsões antigas (Opcional, ou podes manter para histórico)
-        // Aqui vamos apenas inserir os novos. Para este simulador, vamos limpar para ter sempre os frescos.
-        await supabase.from('betting_predictions').delete().neq('id', -1); 
+        // 2. Limpar previsões antigas usando um filtro compatível com UUID
+        const { error: delError } = await supabase
+            .from('betting_predictions')
+            .delete()
+            .gte('created_at', '1970-01-01'); // Apaga tudo o que foi criado desde 1970
+
+        if (delError) console.warn("Aviso ao limpar DB:", delError.message);
 
         // 3. Preparar dados para Supabase
         const records = freshMatches.map(m => ({
