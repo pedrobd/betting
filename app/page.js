@@ -290,10 +290,28 @@ export default function Home() {
                   </div>
                 </div>
                 
-                <h3 style={{ margin: '0 0 16px 0', fontSize: '20px', display: 'flex', justifyContent: 'space-between', letterSpacing: '-0.5px' }}>
-                  <span style={{ color: isSelected ? 'var(--mm-orange)' : 'var(--text-primary)' }}>{m.team_home}</span>
-                  <span style={{ color: 'var(--border-light)' }}>vs</span>
-                  <span style={{ color: 'var(--text-secondary)' }}>{m.team_away}</span>
+                <h3 style={{ margin: '0 0 16px 0', fontSize: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', letterSpacing: '-0.5px' }}>
+                  <span style={{ color: isSelected ? 'var(--mm-orange)' : 'var(--text-primary)', display: 'flex', flexDirection: 'column' }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                       {m.team_home} 
+                       {m.home_pos > 0 && <span style={{ fontSize: '10px', backgroundColor: 'rgba(255,255,255,0.1)', padding: '2px 4px', borderRadius: '4px', color: 'var(--text-secondary)' }}>#{m.home_pos}</span>}
+                    </span>
+                    <span style={{ fontSize: '10px', color: 'var(--mm-green)', letterSpacing: '2px', marginTop: '4px', fontWeight: 'bold' }}>{m.home_form}</span>
+                  </span>
+                  
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                    <span style={{ color: 'var(--border-light)', fontSize: '12px' }}>VS</span>
+                    {m.odd_trend === 'dropping' && <span title="Odd a cair!" style={{ fontSize: '16px', animation: 'pulse 1.5s infinite' }}>🔥</span>}
+                    {m.odd_trend === 'rising' && <span title="Odd a subir" style={{ fontSize: '16px', opacity: 0.5 }}>⚠️</span>}
+                  </div>
+
+                  <span style={{ color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                       {m.away_pos > 0 && <span style={{ fontSize: '10px', backgroundColor: 'rgba(255,255,255,0.1)', padding: '2px 4px', borderRadius: '4px', color: 'var(--text-secondary)' }}>#{m.away_pos}</span>}
+                       {m.team_away}
+                    </span>
+                    <span style={{ fontSize: '10px', color: 'var(--text-secondary)', letterSpacing: '2px', marginTop: '4px', fontWeight: 'bold' }}>{m.away_form}</span>
+                  </span>
                 </h3>
                 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>

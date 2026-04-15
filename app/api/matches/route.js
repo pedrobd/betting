@@ -14,10 +14,13 @@ export async function POST(req) {
     // Na Vercel, apenas lemos os dados que o teu Script Local (cloud_sync.js) enviou.
     console.log("A ler jogos da Cloud Supabase...");
     
-    // Vamos buscar os 10 jogos com maior confiança
+    // Vamos buscar apenas jogos recentes (últimas 24h) com maior confiança
+    const last24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
     const { data: matches, error } = await supabase
       .from('betting_predictions')
       .select('*')
+      .gt('created_at', last24h)
       .order('created_at', { ascending: false })
       .range(offset, offset + 9);
 
