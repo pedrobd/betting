@@ -8,7 +8,12 @@ import { fetchTeamNews } from '../lib/news.js';
 import { analyzeTextSentiment, calculateConfidence, constructReasoning, detectValueBet } from '../lib/analyzer.js';
 import { getTeamStats } from '../lib/sofascore.js';
 
-console.log("🚀 SYNC ÚNICO — Debug Mode\n");
+console.log("🚀 SYNC ÚNICO — Modo Produção\n");
+
+// Limpeza prévia — garante que não ficam registos antigos/inválidos
+console.log("🗑️  A limpar registos antigos...");
+await supabase.from('betting_predictions').delete().gt('created_at', '2000-01-01');
+console.log("✅ DB limpa.\n");
 
 try {
     const freshMatches = await getDailyMatches();
