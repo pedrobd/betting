@@ -4,6 +4,27 @@ import './globals.css';
 
 export const dynamic = 'force-dynamic';
 
+// Renderiza letras de forma com cor: W=verde, D=amarelo, L=vermelho
+function FormBadges({ form }) {
+  if (!form || form.includes('?') || form.trim() === '') {
+    return <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.2)', letterSpacing: '2px' }}>— — —</span>;
+  }
+  const colorMap = { W: '#28a745', D: '#fba94c', L: '#d73a49' };
+  return (
+    <span style={{ display: 'inline-flex', gap: '3px' }}>
+      {form.split('').map((c, i) => (
+        <span key={i} style={{
+          fontSize: '10px', fontWeight: '900', color: colorMap[c] || 'var(--text-secondary)',
+          backgroundColor: `${colorMap[c] || '#666'}22`,
+          width: '16px', height: '16px', borderRadius: '3px',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          border: `1px solid ${colorMap[c] || '#666'}44`
+        }}>{c}</span>
+      ))}
+    </span>
+  );
+}
+
 export default function Home() {
   const [matches, setMatches] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -276,7 +297,12 @@ export default function Home() {
                 key={idx} 
                 className={`card fade-in ${isSelected ? 'selected' : ''}`}
                 onClick={() => toggleBet(m)}
-                style={{ animationDelay: `${idx * 0.05}s`, cursor: 'pointer' }}
+                style={{
+                  animationDelay: `${idx * 0.05}s`,
+                  cursor: 'pointer',
+                  borderColor: m.is_value_bet ? 'rgba(255,215,0,0.25)' : undefined,
+                  boxShadow: m.is_value_bet ? '0 0 20px rgba(255,215,0,0.06)' : undefined,
+                }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                   <span style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: '600', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -284,6 +310,14 @@ export default function Home() {
                     {m.time.includes(':') ? `HOJE ÀS ${m.time}` : m.time.toUpperCase()} 
                     <span style={{ color: 'rgba(255,255,255,0.2)' }}>|</span>
                     {new Date(m.created_at).toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit' })}
+                    {m.is_value_bet && (
+                      <span style={{
+                        fontSize: '10px', fontWeight: '900', color: '#FFD700',
+                        backgroundColor: 'rgba(255,215,0,0.12)', border: '1px solid rgba(255,215,0,0.35)',
+                        borderRadius: '4px', padding: '2px 6px', letterSpacing: '0.5px',
+                        textShadow: '0 0 8px rgba(255,215,0,0.6)'
+                      }}>💎 VALUE BET</span>
+                    )}
                   </span>
                   <div className={`badge-odd ${isSelected ? 'selected' : ''}`}>
                      {m.odd.toFixed(2)}x
@@ -296,7 +330,7 @@ export default function Home() {
                        {m.team_home} 
                        {m.home_pos > 0 && <span style={{ fontSize: '10px', backgroundColor: 'rgba(255,255,255,0.1)', padding: '2px 4px', borderRadius: '4px', color: 'var(--text-secondary)' }}>#{m.home_pos}</span>}
                     </span>
-                    <span style={{ fontSize: '10px', color: 'var(--mm-green)', letterSpacing: '2px', marginTop: '4px', fontWeight: 'bold' }}>{m.home_form}</span>
+                    <span style={{ marginTop: '5px' }}><FormBadges form={m.home_form} /></span>
                   </span>
                   
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
@@ -310,7 +344,7 @@ export default function Home() {
                        {m.away_pos > 0 && <span style={{ fontSize: '10px', backgroundColor: 'rgba(255,255,255,0.1)', padding: '2px 4px', borderRadius: '4px', color: 'var(--text-secondary)' }}>#{m.away_pos}</span>}
                        {m.team_away}
                     </span>
-                    <span style={{ fontSize: '10px', color: 'var(--text-secondary)', letterSpacing: '2px', marginTop: '4px', fontWeight: 'bold' }}>{m.away_form}</span>
+                    <span style={{ marginTop: '5px', display: 'flex', justifyContent: 'flex-end' }}><FormBadges form={m.away_form} /></span>
                   </span>
                 </h3>
                 
@@ -322,6 +356,32 @@ export default function Home() {
                   <strong style={{ fontSize: '14px', color: 'var(--text-primary)' }}>{m.confidence}%</strong>
                 </div>
                 
+                {/* xG + EV row — Boolean() prevents {0} from rendering as text */}
+                {Boolean(m.home_xg > 0 || m.away_xg > 0 || (m.ev && m.ev !== 0)) && (
+                  <div style={{ display: 'flex', gap: '8px', marginBottom: '12px', flexWrap: 'wrap' }}>
+                    {m.home_xg > 0 && (
+                      <span style={{ fontSize: '11px', backgroundColor: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '4px', padding: '3px 8px', color: 'var(--text-secondary)' }}>
+                        xG 🏠 <strong style={{ color: m.home_xg > m.away_xg ? 'var(--mm-green)' : 'var(--mm-red)' }}>{m.home_xg}</strong>
+                      </span>
+                    )}
+                    {m.away_xg > 0 && (
+                      <span style={{ fontSize: '11px', backgroundColor: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '4px', padding: '3px 8px', color: 'var(--text-secondary)' }}>
+                        xG ✈️ <strong style={{ color: m.away_xg > m.home_xg ? 'var(--mm-green)' : 'var(--text-secondary)' }}>{m.away_xg}</strong>
+                      </span>
+                    )}
+                    {m.ev !== undefined && m.ev !== null && m.ev !== 0 && (
+                      <span style={{
+                        fontSize: '11px', borderRadius: '4px', padding: '3px 8px', fontWeight: '700',
+                        backgroundColor: m.ev > 0 ? 'rgba(40,167,69,0.1)' : 'rgba(215,58,73,0.1)',
+                        border: `1px solid ${m.ev > 0 ? 'rgba(40,167,69,0.3)' : 'rgba(215,58,73,0.3)'}`,
+                        color: m.ev > 0 ? 'var(--mm-green)' : 'var(--mm-red)'
+                      }}>
+                        EV {m.ev > 0 ? '+' : ''}{m.ev}%
+                      </span>
+                    )}
+                  </div>
+                )}
+
                 <div style={{ padding: '12px', backgroundColor: 'rgba(0,0,0,0.2)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
                   <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.5 }}>
                     <span style={{ color: 'var(--mm-blue)' }}>◆</span> {m.reasoning}
