@@ -131,12 +131,79 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState('slip'); // 'slip' ou 'history'
   const [history, setHistory] = useState([]);
 
+  // -- Filtro do Historial --
+  const [historyFilter, setHistoryFilter] = useState('all'); // 'all' | 'week' | 'month'
+
+  // -- Delete Aposta --
+  const deleteBet = async (betId) => {
+    setHistory(history.filter(b => b.id !== betId)); // optimistic UI
+    try {
+      await fetch('/api/bets', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: betId })
+      });
+    } catch(e) { console.error('Erro ao apagar aposta:', e); }
+  };
+
+  // -- Export CSV --
+  const exportCSV = () => {
+    const rows = [['Ticket','Data','Jogo','Odd','Stake','Retorno','Estado']];
+    history.forEach(b => {
+      const date = new Date(b.created_at).toLocaleDateString('pt-PT');
+      const games = (b.matches || []).map(m => m.team_home).join(' + ');
+      rows.push([
+        b.id.substring(0,8).toUpperCase(),
+        date,
+        games,
+        b.total_odd,
+        b.stake,
+        b.potential_return,
+        b.status
+      ]);
+    });
+    const csv = rows.map(r => r.join(';')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `betmask_historico_${new Date().toLocaleDateString('pt-PT').replace(/\//g,'-')}.csv`;
+    a.click(); URL.revokeObjectURL(url);
+    showToast('CSV exportado com sucesso!', 'success');
+  };
+
+  // -- Filtrar historial por período --
+  const filteredHistory = history.filter(b => {
+    if (historyFilter === 'all') return true;
+    const created = new Date(b.created_at);
+    const now = new Date();
+    if (historyFilter === 'week') {
+      const weekAgo = new Date(now); weekAgo.setDate(now.getDate() - 7);
+      return created >= weekAgo;
+    }
+    if (historyFilter === 'month') {
+      return created.getMonth() === now.getMonth() && created.getFullYear() === now.getFullYear();
+    }
+    return true;
+  });
+
+  // -- Agrupar por mês/semana --
+  const groupedHistory = filteredHistory.reduce((groups, bet) => {
+    const d = new Date(bet.created_at);
+    const key = historyFilter === 'week'
+      ? `Semana de ${d.toLocaleDateString('pt-PT', { day:'2-digit', month:'short' })}`
+      : d.toLocaleDateString('pt-PT', { month: 'long', year: 'numeric' });
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(bet);
+    return groups;
+  }, {});
+
   // -- Estatísticas de Performance --
   const stats = {
-    totalStaked: history.reduce((acc, curr) => acc + parseFloat(curr.stake || 0), 0),
-    totalEarned: history.filter(b => b.status === 'WON').reduce((acc, curr) => acc + parseFloat(curr.potential_return || curr.potentialReturn || 0), 0),
+    totalStaked: filteredHistory.reduce((acc, curr) => acc + parseFloat(curr.stake || 0), 0),
+    totalEarned: filteredHistory.filter(b => b.status === 'WON').reduce((acc, curr) => acc + parseFloat(curr.potential_return || curr.potentialReturn || 0), 0),
   };
   const netProfit = (stats.totalEarned - stats.totalStaked).toFixed(2);
+  const winRate = filteredHistory.length > 0 ? Math.round(filteredHistory.filter(b => b.status === 'WON').length / filteredHistory.filter(b => b.status !== 'PENDING').length * 100) || 0 : 0;
 
   const toggleBet = (match) => {
     const isSelected = betSlip.some(b => b.team_home === match.team_home);
@@ -456,85 +523,129 @@ export default function Home() {
                 )}
               </>
             ) : (
-              // TAB HISTORY
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                 
-                 {/* Dashboard de Performance */}
-                 <div style={{ padding: '20px', backgroundColor: 'var(--bg-main)', borderRadius: 'var(--radius-card)', border: '1px solid var(--border-light)', marginBottom: '8px' }}>
-                    <p style={{ margin: '0 0 12px 0', fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 'bold' }}>Performance Summary</p>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                       <div>
-                          <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-secondary)' }}>Staked</p>
-                          <strong style={{ fontSize: '16px' }}>{stats.totalStaked.toFixed(2)}</strong>
-                       </div>
-                       <div style={{ textAlign: 'right' }}>
-                          <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-secondary)' }}>Profit/Loss</p>
-                          <strong style={{ fontSize: '18px', color: netProfit >= 0 ? 'var(--mm-green)' : 'var(--mm-red)' }}>
-                            {netProfit >= 0 ? '+' : ''}{netProfit} EUR
-                          </strong>
-                       </div>
+              // TAB HISTORY — com filtros por período, agrupamento e export CSV
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                
+                {/* Performance Summary */}
+                <div style={{ padding: '16px', backgroundColor: 'var(--bg-main)', borderRadius: 'var(--radius-card)', border: '1px solid var(--border-light)' }}>
+                  <p style={{ margin: '0 0 10px 0', fontSize: '10px', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 'bold' }}>Performance Summary</p>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
+                    <div>
+                      <p style={{ margin: 0, fontSize: '10px', color: 'var(--text-secondary)' }}>Investido</p>
+                      <strong style={{ fontSize: '14px' }}>{stats.totalStaked.toFixed(0)}€</strong>
                     </div>
-                 </div>
+                    <div style={{ textAlign: 'center' }}>
+                      <p style={{ margin: 0, fontSize: '10px', color: 'var(--text-secondary)' }}>Win Rate</p>
+                      <strong style={{ fontSize: '14px', color: winRate >= 50 ? 'var(--mm-green)' : 'var(--mm-orange)' }}>{isNaN(winRate) ? '—' : `${winRate}%`}</strong>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <p style={{ margin: 0, fontSize: '10px', color: 'var(--text-secondary)' }}>P/L</p>
+                      <strong style={{ fontSize: '14px', color: netProfit >= 0 ? 'var(--mm-green)' : 'var(--mm-red)' }}>{netProfit >= 0 ? '+' : ''}{netProfit}€</strong>
+                    </div>
+                  </div>
+                </div>
 
-                 {history.length === 0 ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100px', opacity: 0.6 }}>
-                       <p style={{ color: 'var(--text-secondary)', textAlign: 'center', margin: 0 }}>Sem apostas gravadas nesta sessão.</p>
-                    </div>
-                 ) : (
-                    history.map((record, index) => {
-                      const isPending = record.status === 'PENDING';
-                      const isWon = record.status === 'WON';
-                      const statusColor = isWon ? 'var(--mm-green)' : (isPending ? 'var(--warning)' : 'var(--mm-red)');
-                      
-                      return (
-                        <div key={record.id} className="card fade-in" style={{ padding: '16px', borderLeft: `3px solid ${statusColor}` }}>
-                           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
-                              <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Ticket #{record.id.substring(0,8).toUpperCase()}</span>
-                              
-                              {isPending && <span style={{ fontSize: '12px', fontWeight: 'bold', color: 'var(--warning)', backgroundColor: 'rgba(251,169,76,0.1)', padding: '2px 8px', borderRadius: '4px' }}>⏰ PENDING</span>}
-                              {isWon && <span style={{ fontSize: '12px', fontWeight: 'bold', color: 'var(--mm-green)', backgroundColor: 'rgba(40,167,69,0.1)', padding: '2px 8px', borderRadius: '4px' }}>✅ WON</span>}
-                              {!isPending && !isWon && <span style={{ fontSize: '12px', fontWeight: 'bold', color: 'var(--mm-red)', backgroundColor: 'rgba(215,58,73,0.1)', padding: '2px 8px', borderRadius: '4px' }}>❌ LOST</span>}
-                           </div>
-                           <div style={{ borderBottom: '1px solid var(--border-light)', paddingBottom: '12px', marginBottom: '12px' }}>
-                             {record.matches.map((m, ii) => (
-                               <div key={ii} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', marginBottom: '6px' }}>
+                {/* Filtros de Período + Export */}
+                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                  {['all','week','month'].map(f => (
+                    <button key={f} onClick={() => setHistoryFilter(f)} style={{
+                      flex: 1, padding: '6px 4px', fontSize: '11px', fontWeight: '600',
+                      border: '1px solid var(--border-light)', borderRadius: '6px', cursor: 'pointer',
+                      background: historyFilter === f ? 'var(--mm-orange)' : 'transparent',
+                      color: historyFilter === f ? 'white' : 'var(--text-secondary)',
+                      transition: 'all 0.2s'
+                    }}>
+                      {f === 'all' ? 'Tudo' : f === 'week' ? 'Semana' : 'Mês'}
+                    </button>
+                  ))}
+                  <button onClick={exportCSV} title="Exportar CSV" style={{
+                    padding: '6px 10px', fontSize: '14px', border: '1px solid var(--border-light)',
+                    borderRadius: '6px', cursor: 'pointer', background: 'transparent',
+                    color: 'var(--mm-green)', transition: 'all 0.2s'
+                  }}>📥</button>
+                </div>
+
+                {/* Lista agrupada */}
+                {filteredHistory.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '40px 0', opacity: 0.5 }}>
+                    <div style={{ fontSize: '32px', marginBottom: '8px' }}>📭</div>
+                    <p style={{ color: 'var(--text-secondary)', margin: 0, fontSize: '13px' }}>Sem apostas neste período.</p>
+                  </div>
+                ) : (
+                  Object.entries(groupedHistory).map(([period, bets]) => (
+                    <div key={period}>
+                      {/* Cabeçalho do Período */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0 6px 0', marginBottom: '8px', borderBottom: '1px solid var(--border-light)' }}>
+                        <span style={{ fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--mm-orange)' }}>{period}</span>
+                        <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>{bets.length} aposta{bets.length !== 1 ? 's' : ''}</span>
+                      </div>
+
+                      {bets.map((record) => {
+                        const isPending = record.status === 'PENDING';
+                        const isWon = record.status === 'WON';
+                        const statusColor = isWon ? 'var(--mm-green)' : (isPending ? 'var(--warning)' : 'var(--mm-red)');
+                        
+                        return (
+                          <div key={record.id} className="card fade-in" style={{ padding: '14px', borderLeft: `3px solid ${statusColor}`, marginBottom: '10px', position: 'relative' }}>
+                            
+                            {/* Header: Ticket + Status + Delete */}
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>#{record.id.substring(0,8).toUpperCase()}</span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                {isPending && <span style={{ fontSize: '11px', fontWeight: 'bold', color: 'var(--warning)', backgroundColor: 'rgba(251,169,76,0.1)', padding: '2px 7px', borderRadius: '4px' }}>⏰ PENDING</span>}
+                                {isWon && <span style={{ fontSize: '11px', fontWeight: 'bold', color: 'var(--mm-green)', backgroundColor: 'rgba(40,167,69,0.1)', padding: '2px 7px', borderRadius: '4px' }}>✅ WON</span>}
+                                {!isPending && !isWon && <span style={{ fontSize: '11px', fontWeight: 'bold', color: 'var(--mm-red)', backgroundColor: 'rgba(215,58,73,0.1)', padding: '2px 7px', borderRadius: '4px' }}>❌ LOST</span>}
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); if(confirm('Apagar esta aposta?')) deleteBet(record.id); }}
+                                  title="Apagar aposta"
+                                  style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'rgba(215,58,73,0.5)', fontSize: '14px', padding: '2px 4px', borderRadius: '4px', transition: 'color 0.2s' }}
+                                  onMouseEnter={e => e.target.style.color='var(--mm-red)'}
+                                  onMouseLeave={e => e.target.style.color='rgba(215,58,73,0.5)'}
+                                >🗑️</button>
+                              </div>
+                            </div>
+
+                            {/* Jogos */}
+                            <div style={{ borderBottom: '1px solid var(--border-light)', paddingBottom: '10px', marginBottom: '10px' }}>
+                              {record.matches.map((m, ii) => (
+                                <div key={ii} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '4px' }}>
                                   <span style={{ color: 'var(--text-primary)' }}>{m.team_home}</span>
                                   <span style={{ color: 'var(--mm-orange)', fontWeight: 'bold' }}>{m.odd?.toFixed(2) || m.odd}</span>
-                               </div>
-                             ))}
-                           </div>
-                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: isPending ? '16px' : '0' }}>
-                             <div>
-                                <p style={{ margin: '0 0 4px 0', fontSize: '12px', color: 'var(--text-secondary)' }}>Stake</p>
-                                <strong style={{ color: 'var(--text-primary)' }}>{record.stake} EUR</strong>
-                             </div>
-                             <div style={{ textAlign: 'right' }}>
-                                <p style={{ margin: '0 0 4px 0', fontSize: '12px', color: 'var(--text-secondary)' }}>Est. Return</p>
-                                <strong style={{ color: 'var(--mm-green)' }}>{record.potential_return || record.potentialReturn} EUR</strong>
-                             </div>
-                           </div>
-                           
-                           {/* God Mode: Resolve Buttons */}
-                           {isPending && (
-                             <div style={{ display: 'flex', gap: '8px', borderTop: '1px solid var(--border-light)', paddingTop: '12px' }}>
+                                </div>
+                              ))}
+                            </div>
+
+                            {/* Stake + Return */}
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: isPending ? '12px' : '0' }}>
+                              <div>
+                                <p style={{ margin: '0 0 2px 0', fontSize: '11px', color: 'var(--text-secondary)' }}>Stake</p>
+                                <strong style={{ color: 'var(--text-primary)', fontSize: '13px' }}>{record.stake} EUR</strong>
+                              </div>
+                              <div style={{ textAlign: 'right' }}>
+                                <p style={{ margin: '0 0 2px 0', fontSize: '11px', color: 'var(--text-secondary)' }}>Retorno</p>
+                                <strong style={{ color: 'var(--mm-green)', fontSize: '13px' }}>{record.potential_return || record.potentialReturn} EUR</strong>
+                              </div>
+                            </div>
+                            
+                            {/* Win/Lose buttons para PENDING */}
+                            {isPending && (
+                              <div style={{ display: 'flex', gap: '8px', borderTop: '1px solid var(--border-light)', paddingTop: '10px' }}>
                                 <button 
                                   onClick={() => resolveBet(record.id, 'WON', parseFloat(record.potential_return || record.potentialReturn))}
-                                  style={{ flex: 1, backgroundColor: 'rgba(40,167,69,0.1)', color: 'var(--mm-green)', border: '1px solid var(--mm-green)', borderRadius: '6px', padding: '8px', cursor: 'pointer', fontWeight: 'bold', transition: 'all 0.2s' }}
-                                >
-                                  ✅ Win Bet
-                                </button>
+                                  style={{ flex: 1, backgroundColor: 'rgba(40,167,69,0.1)', color: 'var(--mm-green)', border: '1px solid var(--mm-green)', borderRadius: '6px', padding: '7px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}
+                                >✅ Win Bet</button>
                                 <button 
                                   onClick={() => resolveBet(record.id, 'LOST', 0)}
-                                  style={{ flex: 1, backgroundColor: 'rgba(215,58,73,0.1)', color: 'var(--mm-red)', border: '1px solid var(--mm-red)', borderRadius: '6px', padding: '8px', cursor: 'pointer', fontWeight: 'bold', transition: 'all 0.2s' }}
-                                >
-                                  ❌ Lose Bet
-                                </button>
-                             </div>
-                           )}
-                        </div>
-                      );
-                    })
-                 )}
+                                  style={{ flex: 1, backgroundColor: 'rgba(215,58,73,0.1)', color: 'var(--mm-red)', border: '1px solid var(--mm-red)', borderRadius: '6px', padding: '7px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}
+                                >❌ Lose Bet</button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))
+                )}
               </div>
             )}
          </div>

@@ -35,3 +35,14 @@ export async function PATCH(req) {
   if (error) return NextResponse.json({ success: false, error: error.message });
   return NextResponse.json({ success: true, bet: data[0] });
 }
+
+export async function DELETE(req) {
+  if (!supabase) return NextResponse.json({ success: false, error: "Database not connected" });
+  const { id } = await req.json();
+  if (!id) return NextResponse.json({ success: false, error: "ID obrigatório" });
+
+  const { error } = await supabase.from('bet_slips').delete().eq('id', id);
+  if (error) return NextResponse.json({ success: false, error: error.message });
+  return NextResponse.json({ success: true });
+}
+
