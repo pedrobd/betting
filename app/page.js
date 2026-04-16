@@ -28,6 +28,7 @@ function FormBadges({ form }) {
 export default function Home() {
   const [matches, setMatches] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [session, setSession] = useState(null);
   const [offset, setOffset] = useState(0);
 
@@ -87,6 +88,58 @@ export default function Home() {
       showToast("Network Ping Failed", "error");
     }
     setLoading(false);
+  };
+
+  // Trigger sync completo (Flashscore + SofaScore) em background
+  const triggerSync = async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    showToast('⚙️ Sync iniciado! A recolher dados... (~3-5 min)', 'success');
+
+    try {
+      await fetch('/api/sync', { method: 'POST' });
+    } catch(e) { /* ignora */ }
+
+    // Polling: verifica de 10 em 10 segundos se o sync terminou
+    const lastCreatedAt = matches[0]?.created_at || null;
+    const poll = setInterval(async () => {
+      try {
+        const stateRes = await fetch('/api/sync');
+        const state = await stateRes.json();
+
+        // Verifica se há dados novos na DB
+        const matchRes = await fetch('/api/matches', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'init' })
+        });
+        const matchData = await matchRes.json();
+        const newCreatedAt = matchData.matches?.[0]?.created_at;
+
+        if (!state.running && newCreatedAt && newCreatedAt !== lastCreatedAt) {
+          clearInterval(poll);
+          setIsSyncing(false);
+          // Actualiza matches com dados novos
+          const seen = new Set();
+          const unique = (matchData.matches || []).filter(m => {
+            const key = `${m.team_home}-${m.team_away}`;
+            const isFinished = (m.time || '').toLowerCase().includes('term') || (m.time || '').toLowerCase().includes('fin');
+            const isLive = (m.time || '').toLowerCase().includes('ao vivo') || (m.time || '').toLowerCase().includes('int');
+            if (seen.has(key) || isFinished || isLive) return false;
+            seen.add(key); return true;
+          });
+          setMatches(unique.slice(0, 10));
+          showToast('✅ Dados actualizados com sucesso!', 'success');
+        } else if (!state.running && !newCreatedAt) {
+          clearInterval(poll);
+          setIsSyncing(false);
+          showToast('⚠️ Sync terminou sem dados novos.', 'error');
+        }
+      } catch(e) { /* continua a tentar */ }
+    }, 10000); // a cada 10 segundos
+
+    // Timeout de segurança: para o polling ao fim de 20 minutos
+    setTimeout(() => { clearInterval(poll); setIsSyncing(false); }, 1200000);
   };
 
   const loadMore = async () => {
@@ -319,11 +372,23 @@ export default function Home() {
               </span>
             )}
             <button 
-              onClick={initData} 
-              disabled={loading}
-              style={{ background: 'transparent', border: 'none', color: 'var(--mm-orange)', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}
+              onClick={isSyncing ? undefined : triggerSync}
+              disabled={isSyncing || loading}
+              title={isSyncing ? 'Sync em progresso (~3-5 min)...' : 'Scrape Flashscore + SofaScore'}
+              style={{
+                background: isSyncing ? 'rgba(255,165,0,0.1)' : 'transparent',
+                border: isSyncing ? '1px solid rgba(255,165,0,0.3)' : 'none',
+                borderRadius: '6px', padding: isSyncing ? '4px 10px' : '0',
+                color: 'var(--mm-orange)', cursor: isSyncing ? 'not-allowed' : 'pointer',
+                fontSize: '13px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px'
+              }}
             >
-              {loading ? 'SYNCING...' : '🔄 SYNC'}
+              {isSyncing ? (
+                <>
+                  <span style={{ display: 'inline-block', width: '10px', height: '10px', border: '2px solid var(--mm-orange)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+                  SYNCING...
+                </>
+              ) : '🔄 SYNC'}
             </button>
             <div className="wallet-badge">
                <span style={{ color: 'var(--text-secondary)', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '1px' }}>Wallet</span>
@@ -331,6 +396,7 @@ export default function Home() {
             </div>
           </div>
         </header>
+
 
         {loading && matches.length === 0 && (
           <div style={{textAlign: "center", color: "var(--text-secondary)", marginTop: "80px"}}>
