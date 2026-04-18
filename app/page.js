@@ -81,7 +81,7 @@ export default function Home() {
           seen.add(key);
           return true;
         });
-        setMatches(unique.slice(0, 10)); 
+        setMatches(unique.slice(0, 20)); 
       } else {
         showToast("Server Sync Error", "error");
       }
@@ -129,7 +129,7 @@ export default function Home() {
             if (seen.has(key) || isFinished || isLive) return false;
             seen.add(key); return true;
           });
-          setMatches(unique.slice(0, 10));
+          setMatches(unique.slice(0, 20));
           showToast('✅ Dados actualizados com sucesso!', 'success');
         } else if (!state.running && !newCreatedAt) {
           clearInterval(poll);
@@ -146,7 +146,7 @@ export default function Home() {
   const loadMore = async () => {
     if (!session) return;
     setLoading(true);
-    const nextOffset = offset + 10;
+    const nextOffset = offset + 20;
     try {
       const res = await fetch('/api/matches', {
         method: 'POST',
@@ -472,6 +472,13 @@ export default function Home() {
               return isHomeCapable && notInCrises && minConfidence;
             }
             return true;
+          }).map(m => {
+            // Aplica odd aproximada realista para 1X (Dupla Hipótese) em vez de mostrar a odd da Vitória Simples (1)
+            if (feedFilter === '1x') {
+               const odd1x = 1 + ((m.odd - 1) * 0.32);
+               return { ...m, odd: odd1x, original_odd: m.odd, market: '1X (Seguro)' };
+            }
+            return { ...m, market: 'Match Winner' };
           }).map((m, idx) => {
             const isSelected = betSlip.some(b => b.team_home === m.team_home);
             
@@ -629,7 +636,7 @@ export default function Home() {
                             ✕
                           </button>
                           <h4 style={{ margin: '0 0 8px 0', fontSize: '15px', color: 'var(--text-primary)' }}>{b.team_home}</h4>
-                          <p style={{ fontSize: '12px', color: 'var(--mm-blue)', margin: 0, fontWeight: '600' }}>Match Winner</p>
+                          <p style={{ fontSize: '12px', color: 'var(--mm-blue)', margin: 0, fontWeight: '600' }}>{b.market || 'Match Winner'}</p>
                           <div style={{ textAlign: 'right', fontWeight: '900', color: 'var(--mm-orange)', fontSize: '18px', marginTop: '8px' }}>
                             {b.odd.toFixed(2)}x
                           </div>
