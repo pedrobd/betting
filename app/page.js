@@ -468,7 +468,8 @@ export default function Home() {
             if (feedFilter === '1x') {
               const isHomeCapable = m.odd <= 2.80;
               const notInCrises = m.home_form && !m.home_form.includes('LLL');
-              const minConfidence = m.confidence >= 55;
+              const minConfidence = m.confidence >= 0;
+              console.log(`Match: ${m.team_home} vs ${m.team_away}, isHomeCapable: ${isHomeCapable}, notInCrises: ${notInCrises}, minConfidence: ${minConfidence}`);
               return isHomeCapable && notInCrises && minConfidence;
             }
             return true;
