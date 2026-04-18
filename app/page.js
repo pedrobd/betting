@@ -31,6 +31,7 @@ export default function Home() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [session, setSession] = useState(null);
   const [offset, setOffset] = useState(0);
+  const [feedFilter, setFeedFilter] = useState('all'); // 'all' ou '1x'
 
   const [betSlip, setBetSlip] = useState([]);
   const [stake, setStake] = useState(10);
@@ -189,7 +190,20 @@ export default function Home() {
 
   // -- Delete Aposta --
   const deleteBet = async (betId) => {
+    const betToDelete = history.find(b => b.id === betId);
     setHistory(history.filter(b => b.id !== betId)); // optimistic UI
+    
+    if (betToDelete && betToDelete.status === 'PENDING') {
+      setWallet(prev => prev + parseFloat(betToDelete.stake));
+      try {
+        await fetch('/api/wallet', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'reward', amount: betToDelete.stake })
+        });
+      } catch(e) { console.error('Erro ao repor wallet:', e); }
+    }
+
     try {
       await fetch('/api/bets', {
         method: 'DELETE',
@@ -406,8 +420,34 @@ export default function Home() {
           </div>
         )}
 
+        {/* Tabs de Filtro do Feed */}
+        <div style={{ display: 'flex', gap: '8px', marginTop: '20px', marginBottom: '24px', overflowX: 'auto', paddingBottom: '8px' }}>
+            <button 
+              onClick={() => setFeedFilter('all')}
+              style={{
+                padding: '8px 16px', borderRadius: '100px', border: '1px solid var(--border-light)',
+                background: feedFilter === 'all' ? 'var(--mm-orange)' : 'transparent',
+                color: feedFilter === 'all' ? 'white' : 'var(--text-secondary)',
+                fontWeight: 'bold', cursor: 'pointer', transition: 'all 0.2s', whiteSpace: 'nowrap', fontSize: '14px'
+              }}
+            >
+              Todos os Jogos
+            </button>
+            <button 
+              onClick={() => setFeedFilter('1x')}
+              style={{
+                padding: '8px 16px', borderRadius: '100px', border: '1px solid var(--border-light)',
+                background: feedFilter === '1x' ? 'var(--mm-orange)' : 'transparent',
+                color: feedFilter === '1x' ? 'white' : 'var(--text-secondary)',
+                fontWeight: 'bold', cursor: 'pointer', transition: 'all 0.2s', whiteSpace: 'nowrap', fontSize: '14px'
+              }}
+            >
+              Estratégia 1X (Seguro)
+            </button>
+        </div>
+
         {!loading && matches.length === 0 && (
-          <div className="card fade-in" style={{textAlign: "center", marginTop: "80px", borderStyle: 'dashed', padding: '40px'}}>
+          <div className="card fade-in" style={{textAlign: "center", marginTop: "40px", borderStyle: 'dashed', padding: '40px'}}>
             <div style={{ fontSize: '48px', marginBottom: '20px' }}>🔍</div>
             <h3 style={{ margin: '0 0 10px 0' }}>No Pools Detected</h3>
             <p style={{ color: 'var(--text-secondary)', marginBottom: '30px' }}>The network is currently empty or blocked. Try a manual sync.</p>
@@ -422,7 +462,17 @@ export default function Home() {
         )}
 
         <div className="matches-grid" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          {matches.map((m, idx) => {
+          {matches.filter(m => {
+            if (feedFilter === 'all') return true;
+            // Lógica 1X: Casa é favorita ou equilibrada (odd <= 2.80), forma não é péssima, confiança média/alta
+            if (feedFilter === '1x') {
+              const isHomeCapable = m.odd <= 2.80;
+              const notInCrises = m.home_form && !m.home_form.includes('LLL');
+              const minConfidence = m.confidence >= 55;
+              return isHomeCapable && notInCrises && minConfidence;
+            }
+            return true;
+          }).map((m, idx) => {
             const isSelected = betSlip.some(b => b.team_home === m.team_home);
             
             return (

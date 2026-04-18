@@ -1,0 +1,3 @@
+
+Terminal
+node --env-file=.env.local scratch/sync_once.js
