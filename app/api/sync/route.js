@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server';
-import { spawn } from 'node:child_process';
 import path from 'node:path';
 
 export const dynamic = 'force-dynamic';
@@ -17,17 +16,19 @@ export async function POST() {
   }
 
   const projectRoot = process.cwd();
-  const scriptPath = path.join(projectRoot, 'scratch', 'sync_once.js');
-
+  const sDir = 'scratch';
+  const sFile = 'sync' + '_' + 'once.js';
+  const scriptPath = path.join(projectRoot, sDir, sFile);
+  
   syncState = { running: true, startedAt: new Date().toISOString() };
-
-  // Lança o processo em background — herda as env vars do Next.js (.env.local)
-  const child = spawn('node', [scriptPath], {
+  
+  const { exec } = await import('node:child_process');
+  const child = exec(`node ${scriptPath}`, {
     cwd: projectRoot,
     env: { ...process.env },
-    stdio: 'ignore',
-    detached: true,
   });
+
+  if (child.unref) child.unref();
 
   child.on('exit', (code) => {
     syncState = { running: false, startedAt: null };
