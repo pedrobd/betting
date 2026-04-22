@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
-// Estado em memória — persiste entre requests no mesmo processo Node
 let syncState = { running: false, startedAt: null };
 
 export async function GET() {
@@ -10,11 +10,10 @@ export async function GET() {
 }
 
 export async function POST() {
-  // Sync não funciona em Vercel/serverless — só em ambiente local com Node
-  if (process.env.VERCEL) {
+  if (process.env.VERCEL || process.env.VERCEL_ENV) {
     return NextResponse.json({
       success: false,
-      message: 'Sync manual não disponível em produção. Use o script local: node scratch/sync_once.js'
+      message: 'Sync não disponível em produção. Corre localmente: node scratch/sync_once.js'
     });
   }
 
@@ -24,29 +23,37 @@ export async function POST() {
 
   syncState = { running: true, startedAt: new Date().toISOString() };
 
-  // Dynamic import mantém child_process fora do bundle do Vercel
-  const childProcess = await import(/* webpackIgnore: true */ 'child_process');
-  const nodePath = await import(/* webpackIgnore: true */ 'path');
+  try {
+    // eval('require') esconde o require do analisador estático do Turbopack
+    // eslint-disable-next-line no-eval
+    const req = eval('require');
+    const { execFile } = req('child_process');
+    const { join } = req('path');
+    const scriptPath = join(process.cwd(), 'scratch', 'sync_once.js');
 
-  const projectRoot = process.cwd();
-  const scriptPath = nodePath.default.join(projectRoot, 'scratch', 'sync_once.js');
+    const child = execFile('node', [scriptPath], {
+      cwd: process.cwd(),
+      env: { ...process.env },
+      detached: true,
+      stdio: 'ignore',
+    });
 
-  const child = childProcess.exec(`node --experimental-vm-modules "${scriptPath}"`, {
-    cwd: projectRoot,
-    env: { ...process.env },
-  });
+    child.unref();
 
-  child.unref();
+    child.on('exit', (code) => {
+      syncState = { running: false, startedAt: null };
+      console.log(`[SYNC] Terminou com código ${code}`);
+    });
 
-  child.on('exit', (code) => {
+    child.on('error', (err) => {
+      syncState = { running: false, startedAt: null };
+      console.error('[SYNC] Erro:', err.message);
+    });
+  } catch (err) {
     syncState = { running: false, startedAt: null };
-    console.log(`[SYNC] Processo terminou com código ${code}`);
-  });
-
-  child.on('error', (err) => {
-    syncState = { running: false, startedAt: null };
-    console.error('[SYNC] Erro no processo:', err.message);
-  });
+    console.error('[SYNC] Erro ao iniciar:', err.message);
+    return NextResponse.json({ success: false, message: err.message }, { status: 500 });
+  }
 
   return NextResponse.json({
     success: true,
