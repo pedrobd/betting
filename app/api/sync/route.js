@@ -22,6 +22,7 @@ export async function POST() {
   
   syncState = { running: true, startedAt: new Date().toISOString() };
   
+  console.log('[DEBUG] Executing sync with fix...');
   const { exec } = await import('node:child_process');
   const child = exec(`node ${scriptPath}`, {
     cwd: projectRoot,
