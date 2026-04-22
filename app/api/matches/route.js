@@ -36,14 +36,23 @@ export async function POST(req) {
       if (!m.time || !m.time.includes(':')) return true;
       const [hh, mm] = m.time.split(':').map(Number);
 
-      // Verifica se o jogo ainda é hoje (futuro)
-      const candidateToday = new Date(now);
-      candidateToday.setHours(hh, mm, 0, 0);
-      if (candidateToday.getTime() > now.getTime()) return true;
+      // O jogo pertence ao dia do sync — combina data do sync com hora do jogo
+      const syncDate = new Date(m.created_at);
+      const matchOnSyncDay = new Date(syncDate);
+      matchOnSyncDay.setHours(hh, mm, 0, 0);
 
-      // Pode ser amanhã se o sync foi recente (< 30h)
-      const syncedRecently = (now - new Date(m.created_at)) < 30 * 60 * 60 * 1000;
-      return syncedRecently;
+      // Jogo ainda não aconteceu no dia do sync → mostrar
+      if (matchOnSyncDay > now) return true;
+
+      // Caso especial: sync feito tarde (< 8h atrás) e jogo é no dia seguinte
+      const syncedVeryRecently = (now - syncDate) < 8 * 60 * 60 * 1000;
+      if (syncedVeryRecently) {
+        const matchNextDay = new Date(matchOnSyncDay);
+        matchNextDay.setDate(matchNextDay.getDate() + 1);
+        if (matchNextDay > now) return true;
+      }
+
+      return false;
     });
 
     // Ordena por hora crescente (mais cedo primeiro)
