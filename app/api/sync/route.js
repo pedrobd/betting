@@ -1,9 +1,8 @@
 import { NextResponse } from 'next/server';
-import path from 'node:path';
 
 export const dynamic = 'force-dynamic';
 
-// Estado em memória — persiste entre requests no dev mode
+// Estado em memória — persiste entre requests no mesmo processo Node
 let syncState = { running: false, startedAt: null };
 
 export async function GET() {
@@ -11,25 +10,33 @@ export async function GET() {
 }
 
 export async function POST() {
+  // Sync não funciona em Vercel/serverless — só em ambiente local com Node
+  if (process.env.VERCEL) {
+    return NextResponse.json({
+      success: false,
+      message: 'Sync manual não disponível em produção. Use o script local: node scratch/sync_once.js'
+    });
+  }
+
   if (syncState.running) {
     return NextResponse.json({ success: false, message: 'Sync já em progresso...' });
   }
 
-  const projectRoot = process.cwd();
-  const sDir = 'scratch';
-  const sFile = 'sync' + '_' + 'once.js';
-  const scriptPath = path.join(projectRoot, sDir, sFile);
-  
   syncState = { running: true, startedAt: new Date().toISOString() };
-  
-  console.log('[DEBUG] Executing sync with fix...');
-  const { exec } = await import('node:child_process');
-  const child = exec(`node ${scriptPath}`, {
+
+  // Dynamic import mantém child_process fora do bundle do Vercel
+  const childProcess = await import(/* webpackIgnore: true */ 'child_process');
+  const nodePath = await import(/* webpackIgnore: true */ 'path');
+
+  const projectRoot = process.cwd();
+  const scriptPath = nodePath.default.join(projectRoot, 'scratch', 'sync_once.js');
+
+  const child = childProcess.exec(`node --experimental-vm-modules "${scriptPath}"`, {
     cwd: projectRoot,
     env: { ...process.env },
   });
 
-  if (child.unref) child.unref();
+  child.unref();
 
   child.on('exit', (code) => {
     syncState = { running: false, startedAt: null };
@@ -40,8 +47,6 @@ export async function POST() {
     syncState = { running: false, startedAt: null };
     console.error('[SYNC] Erro no processo:', err.message);
   });
-
-  child.unref(); // não bloqueia o processo Next.js
 
   return NextResponse.json({
     success: true,
