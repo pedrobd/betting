@@ -7,16 +7,22 @@
   --text-primary: #FFFFFF;
   --text-secondary: #9FA6B2;
   --border-light: #2D3139;
-  
+
   --mm-orange: #F6851B;
   --mm-orange-hover: #E2761B;
   --mm-blue: #037DD6;
   --mm-green: #28a745;
   --mm-red: #d73a49;
-  
+
   --radius-card: 16px;
   --radius-btn: 100px;
+
+  --mobile-fab-height: 72px;
 }
+
+* { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
 
 body {
   margin: 0;
@@ -25,50 +31,88 @@ body {
   color: var(--text-primary);
   font-family: 'Inter', sans-serif;
   -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
 }
 
 /* Scrollbar invisivel estilo web3 */
-::-webkit-scrollbar {
-  width: 6px;
-}
-::-webkit-scrollbar-thumb {
-  background: var(--border-light);
-  border-radius: 4px;
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 4px; }
+
+h1, h2, h3, h4 { margin: 0; color: var(--text-primary); letter-spacing: -0.02em; }
+
+/* ─── Layout ─────────────────────────────────────────────────────────────── */
+
+.app-container {
+  display: flex;
+  min-height: 100vh;
+  background-color: var(--bg-main);
+  position: relative;
 }
 
-/* Typography Base */
-h1, h2, h3, h4 {
-  margin: 0;
-  color: var(--text-primary);
-  letter-spacing: -0.02em;
+.feed-container {
+  flex: 1;
+  padding: 32px 20px;
+  max-width: 800px;
+  margin: 0 auto;
+  /* espaço para FAB no mobile */
+  padding-bottom: calc(var(--mobile-fab-height) + 24px);
 }
 
-/* UI Elements */
+/* ─── Header ─────────────────────────────────────────────────────────────── */
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 28px;
+  gap: 12px;
+}
+
 .header-brand {
-  font-size: 28px;
+  font-size: 26px;
   font-weight: 900;
   display: flex;
   align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+}
+.header-brand span { color: var(--mm-orange); }
+
+.header-actions {
+  display: flex;
+  align-items: center;
   gap: 12px;
+  flex-shrink: 0;
 }
-.header-brand span {
-  color: var(--mm-orange);
+
+.wallet-badge {
+  background-color: var(--bg-panel);
+  padding: 8px 16px;
+  border-radius: var(--radius-btn);
+  border: 1px solid var(--border-light);
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
+
+/* ─── Cards ──────────────────────────────────────────────────────────────── */
 
 .card {
   background-color: var(--bg-panel);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-card);
   padding: 20px;
-  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+  transition: all 0.25s cubic-bezier(0.25, 0.8, 0.25, 1);
   position: relative;
   overflow: hidden;
 }
 
-.card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.4);
-  border-color: var(--text-secondary);
+@media (hover: hover) {
+  .card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 12px 24px rgba(0,0,0,0.4);
+    border-color: var(--text-secondary);
+  }
 }
 
 .card.selected {
@@ -76,6 +120,8 @@ h1, h2, h3, h4 {
   background-color: #2b1f15;
   box-shadow: 0 0 0 1px var(--mm-orange);
 }
+
+/* ─── Buttons ────────────────────────────────────────────────────────────── */
 
 .btn-mm {
   background-color: var(--mm-orange);
@@ -91,150 +137,163 @@ h1, h2, h3, h4 {
   justify-content: center;
   align-items: center;
   width: 100%;
+  min-height: 48px;
+  touch-action: manipulation;
 }
-
-.btn-mm:hover:not(:disabled) {
-  background-color: var(--mm-orange-hover);
-  transform: scale(1.02);
-}
-
-.btn-mm:disabled {
-  background-color: var(--border-light);
-  color: var(--text-secondary);
-  cursor: not-allowed;
-  transform: none;
-}
+.btn-mm:hover:not(:disabled) { background-color: var(--mm-orange-hover); }
+.btn-mm:disabled { background-color: var(--border-light); color: var(--text-secondary); cursor: not-allowed; }
 
 .badge-odd {
-  background-color: rgba(246, 133, 27, 0.15);
+  background-color: rgba(246,133,27,0.15);
   color: var(--mm-orange);
-  border: 1px solid rgba(246, 133, 27, 0.3);
+  border: 1px solid rgba(246,133,27,0.3);
   padding: 6px 12px;
   border-radius: var(--radius-btn);
   font-weight: 700;
   font-size: 14px;
+  white-space: nowrap;
 }
+.badge-odd.selected { background-color: var(--mm-orange); color: white; }
 
-.badge-odd.selected {
-  background-color: var(--mm-orange);
-  color: white;
-}
-
-/* Layout Responsivo */
-.app-container {
-  display: flex;
-  min-height: 100vh;
-  background-color: var(--bg-main);
-  position: relative;
-}
-
-.feed-container {
-  flex: 1;
-  padding: 40px 20px;
-  max-width: 800px;
-  margin: 0 auto;
-}
-
-.header {
-  display: flex; 
-  justify-content: space-between; 
-  align-items: center; 
-  margin-bottom: 40px;
-}
-
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.wallet-badge {
-  background-color: var(--bg-panel);
-  padding: 12px 24px;
-  border-radius: var(--radius-btn);
-  border: 1px solid var(--border-light);
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.toast-mm {
-  position: fixed;
-  bottom: 40px;
-  left: 50%;
-  transform: translateX(-50%);
-  color: white;
-  padding: 16px 32px;
-  border-radius: 100px;
-  box-shadow: 0 10px 40px rgba(0,0,0,0.5);
-  zIndex: 9999;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  animation: toastFadeIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-}
-
-.toast-mm.success { background-color: var(--mm-green); }
-.toast-mm.error { background-color: var(--mm-red); }
+/* ─── Sidebar / Drawer ───────────────────────────────────────────────────── */
 
 .sidebar {
-  width: 380px; 
-  background-color: var(--bg-panel); 
-  border-left: 1px solid var(--border-light); 
-  padding: 0; 
-  display: flex; 
-  flex-direction: column; 
-  position: sticky; 
-  top: 0; 
+  width: 380px;
+  background-color: var(--bg-panel);
+  border-left: 1px solid var(--border-light);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 0;
   height: 100vh;
+  flex-shrink: 0;
 }
 
-@media (max-width: 1024px) {
-  .app-container {
-    flex-direction: column;
-  }
-  
-  aside {
-    width: 100% !important;
-    height: auto !important;
-    position: relative !important;
-    border-left: none !important;
-    border-top: 1px solid var(--border-light);
-  }
-  
-  .feed-container {
-    padding: 20px;
-  }
-}
+/* ─── FAB (mobile bet slip toggle) ──────────────────────────────────────── */
+.mobile-fab { display: none; }
 
-@media (max-width: 640px) {
-  .header {
-    flex-direction: column;
-    gap: 20px;
-    align-items: flex-start;
-  }
-  
-  .header-actions {
-    width: 100%;
-    justify-content: space-between;
-  }
-  
-  .sync-status {
-    display: none; /* Esconder detalhes técnicos no mobile para poupar espaço */
-  }
+/* ─── Backdrop ───────────────────────────────────────────────────────────── */
+.sidebar-backdrop { display: none; }
 
-  .card h3 {
-    font-size: 16px;
-  }
+/* ─── Animations ─────────────────────────────────────────────────────────── */
+
+.fade-in {
+  animation: fadeIn 0.3s ease both;
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes toastFadeIn {
-  from { opacity: 0; transform: translate(-50%, 20px); scale: 0.95; }
-  to { opacity: 1; transform: translate(-50%, 0); scale: 1; }
+  from { opacity: 0; transform: translate(-50%, 20px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* ─── Tablet ─────────────────────────────────────────────────────────────── */
+
+@media (max-width: 1024px) {
+  .sidebar {
+    width: 320px;
+  }
+}
+
+/* ─── Mobile ─────────────────────────────────────────────────────────────── */
+
+:root {
+  --peek-height: 56px; /* altura do tab bar sempre visível */
+}
+
+@media (max-width: 768px) {
+  .app-container {
+    flex-direction: column;
+  }
+
+  .feed-container {
+    padding: 16px 14px;
+    /* espaço para o tab bar sempre visível em baixo */
+    padding-bottom: calc(var(--peek-height) + 24px);
+    max-width: 100%;
+    width: 100%;
+  }
+
+  /* Header compacto */
+  .header {
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+
+  .header-brand { font-size: 22px; }
+  .header-actions { gap: 8px; }
+  .wallet-badge { padding: 6px 12px; gap: 6px; }
+  .sync-status { display: none; }
+
+  /* Cards mais compactos */
+  .card {
+    padding: 14px;
+    border-radius: 12px;
+  }
+
+  /* ── Sidebar: peek sempre visível + expande ao toque ── */
+  .sidebar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    height: 88vh;
+    border-left: none;
+    border-top: 1px solid var(--border-light);
+    border-radius: 20px 20px 0 0;
+    z-index: 200;
+    /* fecha: só o tab bar fica visível */
+    transform: translateY(calc(100% - var(--peek-height)));
+    transition: transform 0.38s cubic-bezier(0.32, 0.72, 0, 1);
+    box-shadow: 0 -4px 24px rgba(0,0,0,0.5);
+  }
+
+  .sidebar.drawer-open {
+    transform: translateY(0);
+  }
+
+  /* Backdrop escuro — só quando drawer aberto */
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    bottom: var(--peek-height);
+    background: rgba(0,0,0,0.55);
+    z-index: 199;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s;
+  }
+  .sidebar-backdrop.visible {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  /* Handle de drag */
+  .drawer-handle {
+    width: 40px;
+    height: 4px;
+    background: var(--border-light);
+    border-radius: 2px;
+    margin: 10px auto 0 auto;
+    flex-shrink: 0;
+  }
+
+  /* FAB escondido — substituído pelo tab bar */
+  .mobile-fab { display: none; }
 }

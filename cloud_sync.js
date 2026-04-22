@@ -2,7 +2,7 @@ import { getDailyMatches } from './lib/flashscore.js';
 import { supabase } from './lib/supabase.js';
 import { fetchTeamNews } from './lib/news.js';
 import { analyzeTextSentiment, calculateConfidence, constructReasoning, detectValueBet } from './lib/analyzer.js';
-import { getTeamStats } from './lib/sofascore.js';
+import { getTeamStats, getH2H } from './lib/sofascore.js';
 
 async function syncToCloud() {
     console.log("🚀 [SYNC] Iniciando Sincronização BetMask Pro (Flashscore + SofaIntel + xG)...");
@@ -17,6 +17,15 @@ async function syncToCloud() {
 
         console.log(`✅ [SYNC] ${freshMatches.length} jogos extraídos. A calcular inteligência...`);
 
+        // Guardar odds anteriores antes de sobrescrever
+        const { data: existingData } = await supabase
+            .from('betting_predictions')
+            .select('team_home, team_away, time, odd');
+        const existingOdds = {};
+        (existingData || []).forEach(r => {
+            existingOdds[`${r.team_home}|${r.team_away}|${r.time}`] = parseFloat(r.odd);
+        });
+
         const records = [];
         for (const match of freshMatches) {
             console.log(`\n🧐 Analisando: ${match.team_home} vs ${match.team_away}`);
@@ -30,11 +39,18 @@ async function syncToCloud() {
             console.log(`   🏠 Casa: forma="${homeIntel.form}" pos=#${homeIntel.pos} xG=${homeIntel.xg}`);
             console.log(`   ✈️  Fora: forma="${awayIntel.form}" pos=#${awayIntel.pos} xG=${awayIntel.xg}`);
 
-            // 2. Sentimento de notícias
+            // 2. H2H directo
+            let h2h = [];
+            if (homeIntel.teamId && awayIntel.teamId) {
+                h2h = await getH2H(homeIntel.teamId, awayIntel.teamId);
+                if (h2h.length > 0) console.log(`   ⚔️  H2H: ${h2h.map(r => r.result).join('')} (${h2h.filter(r => r.result === 'W').length}V)`);
+            }
+
+            // 3. Sentimento de notícias
             const newsText = await fetchTeamNews(match.team_home, match.team_away);
             const sentiment = analyzeTextSentiment(newsText);
 
-            // 3. Confidence com xG integrado
+            // 4. Confidence com xG + H2H integrados
             const confidence = calculateConfidence(
                 match.odd,
                 homeIntel.form,
@@ -44,10 +60,11 @@ async function syncToCloud() {
                 awayIntel.pos,
                 match.odd_trend,
                 homeIntel.xg,
-                awayIntel.xg
+                awayIntel.xg,
+                h2h
             );
 
-            // 4. Value Bet detector
+            // 5. Value Bet detector
             const { isValueBet, ev, edge } = detectValueBet(
                 match.odd,
                 confidence,
@@ -55,7 +72,7 @@ async function syncToCloud() {
                 awayIntel.xg
             );
 
-            // 5. Reasoning enriquecido
+            // 6. Reasoning enriquecido
             const reasoning = constructReasoning(
                 match.odd,
                 homeIntel.form,
@@ -66,17 +83,31 @@ async function syncToCloud() {
                 awayIntel.pos,
                 match.odd_trend,
                 homeIntel.xg,
-                awayIntel.xg
+                awayIntel.xg,
+                h2h
             );
+
+            const oddPrevious = existingOdds[`${match.team_home}|${match.team_away}|${match.time}`] || 0;
 
             if (isValueBet) {
                 console.log(`   💎 VALUE BET! EV: +${ev}% | Edge: +${edge}%`);
             }
-
+            // Validação de qualidade de dados
+            const dataQuality = {
+                hasRealOdd: match.odd > 1.0,
+                hasForm: homeIntel.form.length > 0,
+                hasXg: homeIntel.xg > 0,
+                hasPosition: homeIntel.pos > 0,
+            };
+            console.log(`   📋 Qualidade: ${JSON.stringify(dataQuality)}`);
             records.push({
                 team_home: match.team_home,
                 team_away: match.team_away,
                 odd: match.odd,
+                odd_previous: oddPrevious,
+                odd_draw: match.odd_draw || 0,
+                odd_1x: match.odd_1x || 0,
+                odd_over15: match.odd_over15 || 0,
                 time: match.time,
                 confidence,
                 reasoning,
@@ -89,6 +120,7 @@ async function syncToCloud() {
                 ev,
                 is_value_bet: isValueBet,
                 odd_trend: match.odd_trend,
+                h2h: h2h,
                 session_id: Math.random().toString(36).substring(7)
             });
 

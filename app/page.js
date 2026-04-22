@@ -4,6 +4,68 @@ import './globals.css';
 
 export const dynamic = 'force-dynamic';
 
+// ─── Poisson + Dixon-Coles (client-side) ─────────────────────────────────────
+// Replica a lógica do server para calcular probabilidades correctas por mercado.
+function _poissonProb(lambda, k) {
+  if (lambda <= 0) return k === 0 ? 1 : 0;
+  let logP = -lambda + k * Math.log(lambda);
+  for (let i = 1; i <= k; i++) logP -= Math.log(i);
+  return Math.exp(logP);
+}
+
+function calcMatchProbs(homeXg, awayXg) {
+  if (!homeXg || !awayXg || homeXg <= 0 || awayXg <= 0) return null;
+  const HOME_ADV = 0.3, DC_RHO = -0.13;
+  const lH = homeXg + HOME_ADV;
+  const lA = Math.max(0.1, awayXg - HOME_ADV * 0.5);
+  let homeWin = 0, draw = 0, awayWin = 0, over15 = 0, total = 0;
+  for (let i = 0; i <= 9; i++) {
+    const pH = _poissonProb(lH, i);
+    for (let j = 0; j <= 9; j++) {
+      const pA = _poissonProb(lA, j);
+      let tau = 1;
+      if (i === 0 && j === 0) tau = 1 - lH * lA * DC_RHO;
+      else if (i === 1 && j === 0) tau = 1 + lA * DC_RHO;
+      else if (i === 0 && j === 1) tau = 1 + lH * DC_RHO;
+      else if (i === 1 && j === 1) tau = 1 - DC_RHO;
+      const p = pH * pA * tau;
+      if (i > j) homeWin += p; else if (i === j) draw += p; else awayWin += p;
+      if (i + j > 1) over15 += p;
+      total += p;
+    }
+  }
+  if (total > 0) { homeWin /= total; draw /= total; awayWin /= total; over15 /= total; }
+  return {
+    homeWin: parseFloat((homeWin * 100).toFixed(1)),
+    draw: parseFloat((draw * 100).toFixed(1)),
+    awayWin: parseFloat((awayWin * 100).toFixed(1)),
+    over15: parseFloat((over15 * 100).toFixed(1)),
+    conf1x: parseFloat(Math.min(97, (homeWin + draw) * 100).toFixed(1)),
+  };
+}
+
+// Renderiza H2H (últimos confrontos directos)
+function H2HBadges({ h2h }) {
+  if (!h2h || h2h.length === 0) return null;
+  const colorMap = { W: '#28a745', D: '#fba94c', L: '#d73a49' };
+  const wins = h2h.filter(r => r.result === 'W').length;
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+      <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: '1px', marginRight: '2px' }}>H2H</span>
+      {h2h.map((r, i) => (
+        <span key={i} style={{
+          fontSize: '10px', fontWeight: '900', color: colorMap[r.result] || '#666',
+          backgroundColor: `${colorMap[r.result] || '#666'}22`,
+          width: '16px', height: '16px', borderRadius: '3px',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          border: `1px solid ${colorMap[r.result] || '#666'}44`
+        }}>{r.result}</span>
+      ))}
+      <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.3)', marginLeft: '2px' }}>{wins}/{h2h.length}V</span>
+    </span>
+  );
+}
+
 // Renderiza letras de forma com cor: W=verde, D=amarelo, L=vermelho
 function FormBadges({ form }) {
   if (!form || form.includes('?') || form.trim() === '') {
@@ -35,12 +97,36 @@ export default function Home() {
 
   const [betSlip, setBetSlip] = useState([]);
   const [stake, setStake] = useState(10);
-  const [wallet, setWallet] = useState(100.00); 
+  const [wallet, setWallet] = useState(100.00);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [toast, setToast] = useState(null);
+  const [accuracy, setAccuracy] = useState(null); // { total, wins, winRate }
+  const [matchResults, setMatchResults] = useState({}); // id → 'W'|'D'|'L'
 
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 4000);
+  };
+
+  const fetchAccuracy = async () => {
+    try {
+      const r = await fetch('/api/result');
+      const d = await r.json();
+      if (d.success) setAccuracy(d);
+    } catch (e) {}
+  };
+
+  const markResult = async (matchId, result, e) => {
+    e.stopPropagation();
+    const prev = matchResults[matchId];
+    const next = prev === result ? null : result; // toggle off
+    setMatchResults(r => ({ ...r, [matchId]: next }));
+    await fetch('/api/result', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: matchId, result: next }),
+    });
+    fetchAccuracy();
   };
 
   const initWalletAndBets = async () => {
@@ -52,14 +138,14 @@ export default function Home() {
       const rb = await fetch('/api/bets');
       const dataB = await rb.json();
       if (dataB.success) setHistory(dataB.bets);
-    } catch(e) {
+    } catch (e) {
       console.error(e);
     }
   };
 
   const initData = async () => {
     setLoading(true);
-    await initWalletAndBets(); 
+    await initWalletAndBets();
     try {
       const res = await fetch('/api/matches', {
         method: 'POST',
@@ -67,7 +153,7 @@ export default function Home() {
         body: JSON.stringify({ action: 'init' })
       });
       const data = await res.json();
-      
+
       if (data.success) {
         setSession(data.sessionId);
         // Proteção contra duplicados e jogos passados
@@ -76,16 +162,16 @@ export default function Home() {
           const key = `${m.team_home}-${m.team_away}`;
           const isFinished = (m.time || "").toLowerCase().includes('term') || (m.time || "").toLowerCase().includes('fin');
           const isLive = (m.time || "").toLowerCase().includes('ao vivo') || (m.time || "").toLowerCase().includes('int');
-          
+
           if (seen.has(key) || isFinished || isLive) return false;
           seen.add(key);
           return true;
         });
-        setMatches(unique.slice(0, 20)); 
+        setMatches(unique.slice(0, 20));
       } else {
         showToast("Server Sync Error", "error");
       }
-    } catch(e) {
+    } catch (e) {
       showToast("Network Ping Failed", "error");
     }
     setLoading(false);
@@ -99,7 +185,7 @@ export default function Home() {
 
     try {
       await fetch('/api/sync', { method: 'POST' });
-    } catch(e) { /* ignora */ }
+    } catch (e) { /* ignora */ }
 
     // Polling: verifica de 10 em 10 segundos se o sync terminou
     const lastCreatedAt = matches[0]?.created_at || null;
@@ -136,7 +222,7 @@ export default function Home() {
           setIsSyncing(false);
           showToast('⚠️ Sync terminou sem dados novos.', 'error');
         }
-      } catch(e) { /* continua a tentar */ }
+      } catch (e) { /* continua a tentar */ }
     }, 10000); // a cada 10 segundos
 
     // Timeout de segurança: para o polling ao fim de 20 minutos
@@ -154,7 +240,7 @@ export default function Home() {
         body: JSON.stringify({ action: 'load_more', sessionId: session, offset: nextOffset })
       });
       const data = await res.json();
-      
+
       if (data.success && data.matches.length > 0) {
         // Unir com os atuais e remover duplicados por segurança
         const combined = [...matches, ...data.matches];
@@ -163,22 +249,23 @@ export default function Home() {
           const key = `${m.team_home}-${m.team_away}`;
           const isFinished = (m.time || "").toLowerCase().includes('term') || (m.time || "").toLowerCase().includes('fin');
           const isLive = (m.time || "").toLowerCase().includes('ao vivo') || (m.time || "").toLowerCase().includes('int');
-          
+
           if (seen.has(key) || isFinished || isLive) return false;
           seen.add(key);
           return true;
         });
-        setMatches(unique); 
+        setMatches(unique);
         setOffset(nextOffset);
       } else {
-        showToast("No more pools available.", "error");
+        showToast("Não há mais jogos disponíveis.", "error");
       }
-    } catch(e) {}
+    } catch (e) { }
     setLoading(false);
   };
 
   useEffect(() => {
     initData();
+    fetchAccuracy();
   }, []);
 
   // -- Lógica do Boletim & Histórico --
@@ -187,12 +274,13 @@ export default function Home() {
 
   // -- Filtro do Historial --
   const [historyFilter, setHistoryFilter] = useState('all'); // 'all' | 'week' | 'month'
+  const [expandedBet, setExpandedBet] = useState(null); // id da aposta expandida
 
   // -- Delete Aposta --
   const deleteBet = async (betId) => {
     const betToDelete = history.find(b => b.id === betId);
     setHistory(history.filter(b => b.id !== betId)); // optimistic UI
-    
+
     if (betToDelete && betToDelete.status === 'PENDING') {
       setWallet(prev => prev + parseFloat(betToDelete.stake));
       try {
@@ -201,7 +289,7 @@ export default function Home() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'reward', amount: betToDelete.stake })
         });
-      } catch(e) { console.error('Erro ao repor wallet:', e); }
+      } catch (e) { console.error('Erro ao repor wallet:', e); }
     }
 
     try {
@@ -210,17 +298,17 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: betId })
       });
-    } catch(e) { console.error('Erro ao apagar aposta:', e); }
+    } catch (e) { console.error('Erro ao apagar aposta:', e); }
   };
 
   // -- Export CSV --
   const exportCSV = () => {
-    const rows = [['Ticket','Data','Jogo','Odd','Stake','Retorno','Estado']];
+    const rows = [['Ticket', 'Data', 'Jogo', 'Odd', 'Stake', 'Retorno', 'Estado']];
     history.forEach(b => {
       const date = new Date(b.created_at).toLocaleDateString('pt-PT');
       const games = (b.matches || []).map(m => m.team_home).join(' + ');
       rows.push([
-        b.id.substring(0,8).toUpperCase(),
+        b.id.substring(0, 8).toUpperCase(),
         date,
         games,
         b.total_odd,
@@ -233,7 +321,7 @@ export default function Home() {
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = `betmask_historico_${new Date().toLocaleDateString('pt-PT').replace(/\//g,'-')}.csv`;
+    a.href = url; a.download = `betmask_historico_${new Date().toLocaleDateString('pt-PT').replace(/\//g, '-')}.csv`;
     a.click(); URL.revokeObjectURL(url);
     showToast('CSV exportado com sucesso!', 'success');
   };
@@ -257,7 +345,7 @@ export default function Home() {
   const groupedHistory = filteredHistory.reduce((groups, bet) => {
     const d = new Date(bet.created_at);
     const key = historyFilter === 'week'
-      ? `Semana de ${d.toLocaleDateString('pt-PT', { day:'2-digit', month:'short' })}`
+      ? `Semana de ${d.toLocaleDateString('pt-PT', { day: '2-digit', month: 'short' })}`
       : d.toLocaleDateString('pt-PT', { month: 'long', year: 'numeric' });
     if (!groups[key]) groups[key] = [];
     groups[key].push(bet);
@@ -284,16 +372,34 @@ export default function Home() {
   const totalOdd = betSlip.reduce((acc, curr) => acc * curr.odd, 1).toFixed(2);
   const potentialReturn = (stake * totalOdd).toFixed(2);
 
+  // Kelly Criterion (fracção 1/2 para ser conservador)
+  const kellyStake = (() => {
+    if (betSlip.length !== 1) return null; // Kelly só faz sentido em apostas simples
+    const m = betSlip[0];
+    const p = (m.confidence || 60) / 100;
+    const b = parseFloat(m.odd) - 1;
+    const f = (b * p - (1 - p)) / b; // Kelly fraction
+    const halfKelly = Math.max(0, f / 2); // metade do Kelly, mais seguro
+    const suggested = parseFloat((halfKelly * wallet).toFixed(2));
+    return suggested > 0 ? Math.min(suggested, wallet * 0.25) : null; // cap 25% bankroll
+  })();
+
+  // Probabilidade combinada da múltipla
+  const combinedProb = betSlip.length > 1
+    ? betSlip.reduce((acc, m) => acc * ((m.confidence || 60) / 100), 1)
+    : null;
+
   const placeBet = async () => {
-    if (stake > wallet) return showToast("Insufficient Funds in Wallet!", "error");
-    if (betSlip.length === 0) return showToast("Please select at least one asset.", "error");
-    
+    if (stake > wallet) return showToast("Saldo insuficiente na Wallet!", "error");
+    if (betSlip.length === 0) return showToast("Seleciona pelo menos um jogo.", "error");
+
     // UI Local Imediata (Otimista)
     setWallet(prev => prev - stake);
     setBetSlip([]);
     setActiveTab('history');
-    showToast(`Submitting transaction to the blockchain (Supabase)...`, "success");
-    
+    setDrawerOpen(true); // abre o drawer para mostrar o histórico
+    showToast(`A registar aposta...`, "success");
+
     // Grava na DB
     try {
       const rBet = await fetch('/api/bets', {
@@ -302,26 +408,26 @@ export default function Home() {
         body: JSON.stringify({ matches: betSlip, stake: stake, totalOdd: totalOdd, potentialReturn: potentialReturn })
       });
       const dataBet = await rBet.json();
-      
+
       const rWal = await fetch('/api/wallet', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'charge', amount: stake })
       });
       const dataWal = await rWal.json();
-      
+
       if (dataBet.success && dataWal.success) {
-         setHistory([dataBet.bet, ...history]); 
-         setWallet(dataWal.balance);
-         showToast(`Smart Contract Executed: ${stake}€ Bloqueados!`, "success");
+        setHistory([dataBet.bet, ...history]);
+        setWallet(dataWal.balance);
+        showToast(`Aposta registada! ${stake}€ deduzidos da Wallet.`, "success");
       } else {
-         showToast("DB Connection Error: " + (dataBet.error || dataWal.error), "error");
-         // Reverte a alteração local se falhar no servidor
-         setWallet(prev => prev + stake);
-         setActiveTab('slip');
+        showToast("Erro a gravar aposta: " + (dataBet.error || dataWal.error), "error");
+        // Reverte a alteração local se falhar no servidor
+        setWallet(prev => prev + stake);
+        setActiveTab('slip');
       }
-    } catch(e) {
-      showToast("Falha de gravação na DB!", "error");
+    } catch (e) {
+      showToast("Falha de ligação — aposta não gravada.", "error");
       setWallet(prev => prev + stake);
     }
   };
@@ -330,7 +436,7 @@ export default function Home() {
     // UI Local Imediata Otimista
     setHistory(history.map(b => b.id === betId ? { ...b, status: status } : b));
     if (status === 'WON') setWallet(prev => prev + potentialVal);
-    
+
     // Gravação Backend Supabase
     try {
       await fetch('/api/bets', {
@@ -338,12 +444,12 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: betId, status: status })
       });
-      
+
       if (status === 'WON') {
         const rWal = await fetch('/api/wallet', {
-           method: 'POST',
-           headers: { 'Content-Type': 'application/json' },
-           body: JSON.stringify({ action: 'reward', amount: potentialVal })
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'reward', amount: potentialVal })
         });
         const dataWal = await rWal.json();
         if (dataWal.success) setWallet(dataWal.balance);
@@ -351,14 +457,14 @@ export default function Home() {
       } else {
         showToast(`Aposta Perdida. Mais sorte para a próxima!`, "error");
       }
-    } catch(e) {
-       console.error("Failed to sync bet resolution", e);
+    } catch (e) {
+      console.error("Failed to sync bet resolution", e);
     }
   };
 
   return (
     <div className="app-container">
-      
+
       {/* Toast Notification Premium */}
       {toast && (
         <div style={{
@@ -372,7 +478,7 @@ export default function Home() {
           {toast.type === 'success' ? '✅' : '⚠️'} {toast.message}
         </div>
       )}
-      
+
       {/* Esquerda: Feed de Jogos */}
       <div className="feed-container">
         <header className="header">
@@ -385,7 +491,7 @@ export default function Home() {
                 📡 CLOUD SYNC: {new Date(matches[0].created_at).toLocaleTimeString()}
               </span>
             )}
-            <button 
+            <button
               onClick={isSyncing ? undefined : triggerSync}
               disabled={isSyncing || loading}
               title={isSyncing ? 'Sync em progresso (~3-5 min)...' : 'Scrape Flashscore + SofaScore'}
@@ -405,58 +511,102 @@ export default function Home() {
               ) : '🔄 SYNC'}
             </button>
             <div className="wallet-badge">
-               <span style={{ color: 'var(--text-secondary)', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '1px' }}>Wallet</span>
-               <strong style={{ color: 'var(--text-primary)', fontSize: '18px' }}>{wallet.toFixed(2)} EUR</strong>
+              <span style={{ color: 'var(--text-secondary)', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '1px' }}>Wallet</span>
+              <strong style={{ color: 'var(--text-primary)', fontSize: '18px' }}>{wallet.toFixed(2)} EUR</strong>
             </div>
           </div>
         </header>
 
 
         {loading && matches.length === 0 && (
-          <div style={{textAlign: "center", color: "var(--text-secondary)", marginTop: "80px"}}>
+          <div style={{ textAlign: "center", color: "var(--text-secondary)", marginTop: "80px" }}>
             <div style={{ width: '40px', height: '40px', border: '3px solid var(--border-light)', borderTopColor: 'var(--mm-orange)', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto 20px auto' }}></div>
-            <h3 style={{ margin: 0 }}>Syncing node data...</h3>
-            <p>Fetching odds and sentiment from the network.</p>
+            <h3 style={{ margin: 0 }}>A carregar jogos...</h3>
+            <p>A recolher dados do Flashscore e SofaScore.</p>
+          </div>
+        )}
+
+        {/* Painel de Calibração do Modelo */}
+        {accuracy && accuracy.total > 0 && (
+          <div style={{ marginTop: '16px', marginBottom: '8px' }}>
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+              {/* Taxa global */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 14px', background: 'rgba(255,255,255,0.04)', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Acerto</span>
+                <strong style={{ fontSize: '16px', color: accuracy.winRate >= 60 ? 'var(--mm-green)' : accuracy.winRate >= 45 ? 'var(--mm-orange)' : 'var(--mm-red)' }}>
+                  {accuracy.winRate}%
+                </strong>
+                <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)' }}>{accuracy.wins}/{accuracy.total}</span>
+              </div>
+
+              {/* EV médio */}
+              {accuracy.avgEV !== null && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 12px', background: 'rgba(255,255,255,0.03)', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                  <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.35)' }}>EV Médio</span>
+                  <strong style={{ fontSize: '13px', color: accuracy.avgEV > 0 ? 'var(--mm-green)' : 'var(--mm-red)' }}>
+                    {accuracy.avgEV > 0 ? '+' : ''}{accuracy.avgEV}%
+                  </strong>
+                </div>
+              )}
+
+              {/* Value Bets */}
+              {accuracy.valueBets?.t > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 12px', background: 'rgba(255,215,0,0.04)', borderRadius: '10px', border: '1px solid rgba(255,215,0,0.15)' }}>
+                  <span style={{ fontSize: '11px', color: 'rgba(255,215,0,0.6)' }}>💎 Value</span>
+                  <strong style={{ fontSize: '13px', color: '#FFD700' }}>
+                    {Math.round((accuracy.valueBets.w / accuracy.valueBets.t) * 100)}%
+                  </strong>
+                  <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.25)' }}>{accuracy.valueBets.w}/{accuracy.valueBets.t}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Calibração por banda — "o modelo diz X%, realmente acerta Y%?" */}
+            {accuracy.bands && Object.values(accuracy.bands).some(b => b.t > 0) && (
+              <div style={{ display: 'flex', gap: '8px', marginTop: '8px', flexWrap: 'wrap' }}>
+                {Object.entries(accuracy.bands).map(([key, b]) => b.t > 0 && (
+                  <div key={key} style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '5px 10px', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                    <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)' }}>Conf {b.label}</span>
+                    <strong style={{ fontSize: '12px', color: (b.w/b.t) >= 0.65 ? 'var(--mm-green)' : (b.w/b.t) >= 0.5 ? 'var(--mm-orange)' : 'var(--mm-red)' }}>
+                      {Math.round((b.w/b.t)*100)}%
+                    </strong>
+                    <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.2)' }}>{b.w}/{b.t}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
         {/* Tabs de Filtro do Feed */}
-        <div style={{ display: 'flex', gap: '8px', marginTop: '20px', marginBottom: '24px', overflowX: 'auto', paddingBottom: '8px' }}>
-            <button 
-              onClick={() => setFeedFilter('all')}
-              style={{
-                padding: '8px 16px', borderRadius: '100px', border: '1px solid var(--border-light)',
-                background: feedFilter === 'all' ? 'var(--mm-orange)' : 'transparent',
-                color: feedFilter === 'all' ? 'white' : 'var(--text-secondary)',
-                fontWeight: 'bold', cursor: 'pointer', transition: 'all 0.2s', whiteSpace: 'nowrap', fontSize: '14px'
-              }}
-            >
-              Todos os Jogos
-            </button>
-            <button 
-              onClick={() => setFeedFilter('1x')}
-              style={{
-                padding: '8px 16px', borderRadius: '100px', border: '1px solid var(--border-light)',
-                background: feedFilter === '1x' ? 'var(--mm-orange)' : 'transparent',
-                color: feedFilter === '1x' ? 'white' : 'var(--text-secondary)',
-                fontWeight: 'bold', cursor: 'pointer', transition: 'all 0.2s', whiteSpace: 'nowrap', fontSize: '14px'
-              }}
-            >
-              Estratégia 1X (Seguro)
-            </button>
+        <div style={{ display: 'flex', gap: '8px', marginTop: '16px', marginBottom: '16px', overflowX: 'auto', paddingBottom: '4px', WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none' }}>
+          {[
+            { id: 'all',    label: 'Todos',     color: null },
+            { id: '1x',     label: '1X Seguro', color: null },
+            { id: 'ultra',  label: '🔒 Ultra',  color: '#00e5ff' },
+            { id: 'over15', label: '⚽ Over 1.5', color: '#28e87d' },
+          ].map(f => (
+            <button key={f.id} onClick={() => setFeedFilter(f.id)} style={{
+              padding: '7px 14px', borderRadius: '100px', border: `1px solid ${feedFilter === f.id && f.color ? f.color : 'var(--border-light)'}`,
+              background: feedFilter === f.id ? (f.color ? `${f.color}22` : 'var(--mm-orange)') : 'transparent',
+              color: feedFilter === f.id ? (f.color || 'white') : 'var(--text-secondary)',
+              fontWeight: '700', cursor: 'pointer', transition: 'all 0.2s', whiteSpace: 'nowrap', fontSize: '13px',
+              touchAction: 'manipulation',
+            }}>{f.label}</button>
+          ))}
         </div>
 
         {!loading && matches.length === 0 && (
-          <div className="card fade-in" style={{textAlign: "center", marginTop: "40px", borderStyle: 'dashed', padding: '40px'}}>
+          <div className="card fade-in" style={{ textAlign: "center", marginTop: "40px", borderStyle: 'dashed', padding: '40px' }}>
             <div style={{ fontSize: '48px', marginBottom: '20px' }}>🔍</div>
-            <h3 style={{ margin: '0 0 10px 0' }}>No Pools Detected</h3>
-            <p style={{ color: 'var(--text-secondary)', marginBottom: '30px' }}>The network is currently empty or blocked. Try a manual sync.</p>
-            <button 
-              className="btn-mm" 
+            <h3 style={{ margin: '0 0 10px 0' }}>Sem jogos disponíveis</h3>
+            <p style={{ color: 'var(--text-secondary)', marginBottom: '30px' }}>Não há jogos futuros. Faz um SYNC para carregar os jogos de hoje.</p>
+            <button
+              className="btn-mm"
               onClick={initData}
               style={{ padding: '12px 24px', width: 'auto' }}
             >
-              Sync Network Assets
+              Sincronizar
             </button>
           </div>
         )}
@@ -464,28 +614,95 @@ export default function Home() {
         <div className="matches-grid" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           {matches.filter(m => {
             if (feedFilter === 'all') return true;
-            // Lógica 1X: Casa é favorita ou equilibrada (odd <= 2.80), forma não é péssima, confiança média/alta
+
             if (feedFilter === '1x') {
-              const isHomeCapable = m.odd <= 2.80;
-              const notInCrises = m.home_form && !m.home_form.includes('LLL');
-              const minConfidence = m.confidence >= 0;
-              console.log(`Match: ${m.team_home} vs ${m.team_away}, isHomeCapable: ${isHomeCapable}, notInCrises: ${notInCrises}, minConfidence: ${minConfidence}`);
-              return isHomeCapable && notInCrises && minConfidence;
+              const isValidFavorite = m.odd > 1.10 && m.odd <= 2.5; // excluir super-favoritos triviais
+              const notInCrises = !m.home_form || !m.home_form.includes('LLL');
+              const probs = calcMatchProbs(m.home_xg, m.away_xg);
+              const conf1x = probs ? probs.conf1x : m.confidence;
+              // Deriva odd 1X para verificar EV antes de mostrar
+              const est1xOdd = probs
+                ? parseFloat((1 / Math.min(probs.conf1x / 100, 0.97)).toFixed(2))
+                : (m.odd_1x > 1.05 ? m.odd_1x : null);
+              const hasPositiveEV = est1xOdd ? ((conf1x / 100) * est1xOdd - 1) > -0.03 : true; // tolera até -3%
+              return isValidFavorite && notInCrises && conf1x >= 75 && hasPositiveEV;
             }
+
+            if (feedFilter === 'ultra') {
+              // 🔒 ULTRA SEGURO: TODOS os critérios devem passar
+              const isSuperFav     = m.odd > 1.0 && m.odd <= 1.50;
+              const veryConfident  = m.confidence >= 90;
+              const goodHomeForm   = m.home_form &&
+                (m.home_form.split('').filter(c => c === 'W').length >= 3);
+              const badAwayForm    = !m.away_form ||
+                (m.away_form.split('').filter(c => c === 'W').length <= 1);
+              const positiveEV     = !m.ev || m.ev >= 0;
+              const xgEdge         = !m.home_xg || !m.away_xg ||
+                                     m.home_xg >= m.away_xg * 0.8;
+              const noInjuryAlert  = !m.reasoning?.toLowerCase().includes('lesão');
+              return isSuperFav && veryConfident && goodHomeForm && badAwayForm && positiveEV && xgEdge && noInjuryAlert;
+            }
+
+            if (feedFilter === 'over15') {
+              // Usa Poisson para P(golos > 1.5) directamente — muito mais preciso que heurística
+              const probs = calcMatchProbs(m.home_xg, m.away_xg);
+              const over15Prob = probs ? probs.over15 : null;
+              const hasRealOdds = m.odd_over15 > 1.0 && m.odd_over15 <= 1.65;
+              if (over15Prob !== null) return over15Prob >= 68; // >= 68% = jogo com tendência de golos
+              return hasRealOdds || ((m.home_xg + m.away_xg) >= 2.0);
+            }
+
             return true;
           }).map(m => {
-            // Aplica odd aproximada realista para 1X (Dupla Hipótese) em vez de mostrar a odd da Vitória Simples (1)
             if (feedFilter === '1x') {
-               const odd1x = 1 + ((m.odd - 1) * 0.32);
-               return { ...m, odd: odd1x, original_odd: m.odd, market: '1X (Seguro)' };
+              const probs = calcMatchProbs(m.home_xg, m.away_xg);
+              // Confiança real para 1X = homeWin% + draw% do modelo Poisson DC
+              const conf1x = probs ? probs.conf1x : m.confidence;
+              let real1xOdd;
+              if (m.odd_1x && m.odd_1x > 1.05) {
+                // Odd real do bookmaker (scraped) — mais precisa
+                real1xOdd = parseFloat(m.odd_1x);
+              } else if (probs) {
+                // Deriva odd 1X directamente da probabilidade Poisson DC
+                real1xOdd = parseFloat((1 / Math.min(probs.conf1x / 100, 0.97)).toFixed(2));
+              } else {
+                // Fallback sem Poisson: usa confidence como proxy da prob 1X
+                // (confidence já inclui forma, posição, etc — razoável para 1X)
+                const est1xProb = Math.min((m.confidence + 12) / 100, 0.95);
+                real1xOdd = parseFloat((1 / est1xProb).toFixed(2));
+              }
+              const ev1x = parseFloat((((conf1x / 100) * real1xOdd - 1) * 100).toFixed(2));
+              return { ...m, odd: real1xOdd, confidence: parseFloat(conf1x.toFixed(1)), ev: ev1x, market: '1X (Dupla Hipótese)' };
             }
-            return { ...m, market: 'Match Winner' };
+            if (feedFilter === 'over15') {
+              const probs = calcMatchProbs(m.home_xg, m.away_xg);
+              // Confiança real para Over 1.5 = P(golos totais > 1.5) do Poisson DC
+              const confOver15 = probs ? probs.over15 : m.confidence;
+              let over15Odd;
+              if (m.odd_over15 && m.odd_over15 > 1.0) {
+                over15Odd = parseFloat(m.odd_over15);
+              } else if (probs) {
+                // Odd derivada directamente da probabilidade Poisson (sem heurística)
+                over15Odd = parseFloat((1 / Math.min(probs.over15 / 100, 0.97)).toFixed(2));
+              } else {
+                const totalXg = (m.home_xg || 1.2) + (m.away_xg || 0.9);
+                over15Odd = parseFloat((1 / Math.min(0.55 + (totalXg - 1.5) * 0.12, 0.97)).toFixed(2));
+              }
+              const evOver = parseFloat((((confOver15 / 100) * over15Odd - 1) * 100).toFixed(2));
+              return { ...m, odd: over15Odd, confidence: parseFloat(confOver15.toFixed(1)), ev: evOver, market: '⚽ Over 1.5 Golos' };
+            }
+            if (feedFilter === 'ultra') {
+              // Ultra seguro usa 1X da casa
+              const real1xOdd = m.odd_1x > 1.0 ? parseFloat(m.odd_1x) : parseFloat((1 / Math.min((1/m.odd) + 0.25, 0.97)).toFixed(2));
+              return { ...m, odd: real1xOdd, market: '🔒 Ultra Seg (1X)' };
+            }
+            return { ...m, market: 'Vitória Casa' };
           }).map((m, idx) => {
             const isSelected = betSlip.some(b => b.team_home === m.team_home);
-            
+
             return (
-              <div 
-                key={idx} 
+              <div
+                key={idx}
                 className={`card fade-in ${isSelected ? 'selected' : ''}`}
                 onClick={() => toggleBet(m)}
                 style={{
@@ -495,50 +712,58 @@ export default function Home() {
                   boxShadow: m.is_value_bet ? '0 0 20px rgba(255,215,0,0.06)' : undefined,
                 }}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                  <span style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: '600', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span style={{ color: 'var(--mm-orange)' }}>●</span> 
-                    {m.time.includes(':') ? `HOJE ÀS ${m.time}` : m.time.toUpperCase()} 
-                    <span style={{ color: 'rgba(255,255,255,0.2)' }}>|</span>
-                    {new Date(m.created_at).toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit' })}
+                {/* Linha topo: hora + odd */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', gap: '8px' }}>
+                  <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', minWidth: 0 }}>
+                    <span style={{ color: 'var(--mm-orange)' }}>●</span>
+                    <span style={{ whiteSpace: 'nowrap' }}>{m.time.includes(':') ? `HOJE ${m.time}` : m.time.toUpperCase()}</span>
+                    <span style={{ color: 'rgba(255,255,255,0.2)' }}>·</span>
+                    <span style={{ whiteSpace: 'nowrap' }}>{new Date(m.created_at).toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit' })}</span>
                     {m.is_value_bet && (
                       <span style={{
-                        fontSize: '10px', fontWeight: '900', color: '#FFD700',
+                        fontSize: '9px', fontWeight: '900', color: '#FFD700',
                         backgroundColor: 'rgba(255,215,0,0.12)', border: '1px solid rgba(255,215,0,0.35)',
-                        borderRadius: '4px', padding: '2px 6px', letterSpacing: '0.5px',
-                        textShadow: '0 0 8px rgba(255,215,0,0.6)'
-                      }}>💎 VALUE BET</span>
+                        borderRadius: '4px', padding: '2px 5px', whiteSpace: 'nowrap',
+                      }}>💎 VALUE</span>
                     )}
                   </span>
-                  <div className={`badge-odd ${isSelected ? 'selected' : ''}`}>
-                     {m.odd.toFixed(2)}x
+                  <div className={`badge-odd ${isSelected ? 'selected' : ''}`} style={{ fontSize: '13px', padding: '5px 10px', flexShrink: 0 }}>
+                    {m.odd.toFixed(2)}x
                   </div>
                 </div>
-                
-                <h3 style={{ margin: '0 0 16px 0', fontSize: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', letterSpacing: '-0.5px' }}>
-                  <span style={{ color: isSelected ? 'var(--mm-orange)' : 'var(--text-primary)', display: 'flex', flexDirection: 'column' }}>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                       {m.team_home} 
-                       {m.home_pos > 0 && <span style={{ fontSize: '10px', backgroundColor: 'rgba(255,255,255,0.1)', padding: '2px 4px', borderRadius: '4px', color: 'var(--text-secondary)' }}>#{m.home_pos}</span>}
-                    </span>
-                    <span style={{ marginTop: '5px' }}><FormBadges form={m.home_form} /></span>
-                  </span>
-                  
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-                    <span style={{ color: 'var(--border-light)', fontSize: '12px' }}>VS</span>
-                    {m.odd_trend === 'dropping' && <span title="Odd a cair!" style={{ fontSize: '16px', animation: 'pulse 1.5s infinite' }}>🔥</span>}
-                    {m.odd_trend === 'rising' && <span title="Odd a subir" style={{ fontSize: '16px', opacity: 0.5 }}>⚠️</span>}
+
+                {/* Teams */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginBottom: '4px' }}>
+                      <span style={{ fontSize: '15px', fontWeight: '800', color: isSelected ? 'var(--mm-orange)' : 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.team_home}</span>
+                      {m.home_pos > 0 && <span style={{ fontSize: '9px', backgroundColor: 'rgba(255,255,255,0.1)', padding: '1px 4px', borderRadius: '3px', color: 'var(--text-secondary)', flexShrink: 0 }}>#{m.home_pos}</span>}
+                    </div>
+                    <FormBadges form={m.home_form} />
                   </div>
 
-                  <span style={{ color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                       {m.away_pos > 0 && <span style={{ fontSize: '10px', backgroundColor: 'rgba(255,255,255,0.1)', padding: '2px 4px', borderRadius: '4px', color: 'var(--text-secondary)' }}>#{m.away_pos}</span>}
-                       {m.team_away}
-                    </span>
-                    <span style={{ marginTop: '5px', display: 'flex', justifyContent: 'flex-end' }}><FormBadges form={m.away_form} /></span>
-                  </span>
-                </h3>
-                
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px', flexShrink: 0 }}>
+                    <span style={{ color: 'var(--border-light)', fontSize: '11px', fontWeight: '600' }}>VS</span>
+                    {m.odd_trend === 'dropping' && <span title="Odd a cair!" style={{ fontSize: '14px', animation: 'pulse 1.5s infinite' }}>🔥</span>}
+                    {m.odd_trend === 'rising' && <span title="Odd a subir" style={{ fontSize: '14px', opacity: 0.5 }}>⚠️</span>}
+                  </div>
+
+                  <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginBottom: '4px' }}>
+                      {m.away_pos > 0 && <span style={{ fontSize: '9px', backgroundColor: 'rgba(255,255,255,0.1)', padding: '1px 4px', borderRadius: '3px', color: 'var(--text-secondary)', flexShrink: 0 }}>#{m.away_pos}</span>}
+                      <span style={{ fontSize: '15px', fontWeight: '700', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.team_away}</span>
+                    </div>
+                    <FormBadges form={m.away_form} />
+                  </div>
+                </div>
+
+                {/* H2H Row */}
+                {m.h2h && m.h2h.length > 0 && (
+                  <div style={{ marginBottom: '12px' }}>
+                    <H2HBadges h2h={m.h2h} />
+                  </div>
+                )}
+
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
                   <span style={{ fontSize: '12px', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px' }}>Confidence</span>
                   <div style={{ flex: 1, backgroundColor: 'var(--border-light)', height: '8px', borderRadius: '100px', overflow: 'hidden' }}>
@@ -546,8 +771,8 @@ export default function Home() {
                   </div>
                   <strong style={{ fontSize: '14px', color: 'var(--text-primary)' }}>{m.confidence}%</strong>
                 </div>
-                
-                {/* xG + EV row — Boolean() prevents {0} from rendering as text */}
+
+                {/* xG + EV + Margem row */}
                 {Boolean(m.home_xg > 0 || m.away_xg > 0 || (m.ev && m.ev !== 0)) && (
                   <div style={{ display: 'flex', gap: '8px', marginBottom: '12px', flexWrap: 'wrap' }}>
                     {m.home_xg > 0 && (
@@ -570,6 +795,25 @@ export default function Home() {
                         EV {m.ev > 0 ? '+' : ''}{m.ev}%
                       </span>
                     )}
+                    {m.bk_margin > 0 && (
+                      <span title="Margem do bookmaker (quanto a casa retém)" style={{
+                        fontSize: '11px', borderRadius: '4px', padding: '3px 8px',
+                        backgroundColor: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
+                        color: m.bk_margin <= 5 ? 'var(--mm-green)' : m.bk_margin <= 8 ? 'var(--mm-orange)' : 'var(--mm-red)'
+                      }}>
+                        Margem {m.bk_margin}%
+                      </span>
+                    )}
+                    {m.odd_previous > 0 && parseFloat(m.odd_previous).toFixed(2) !== parseFloat(m.odd).toFixed(2) && (
+                      <span style={{
+                        fontSize: '11px', borderRadius: '4px', padding: '3px 8px', fontWeight: '700',
+                        backgroundColor: m.odd < m.odd_previous ? 'rgba(40,167,69,0.08)' : 'rgba(215,58,73,0.08)',
+                        border: `1px solid ${m.odd < m.odd_previous ? 'rgba(40,167,69,0.25)' : 'rgba(215,58,73,0.25)'}`,
+                        color: m.odd < m.odd_previous ? 'var(--mm-green)' : 'var(--mm-red)'
+                      }}>
+                        {parseFloat(m.odd_previous).toFixed(2)} → {parseFloat(m.odd).toFixed(2)} {m.odd < m.odd_previous ? '↓' : '↑'}
+                      </span>
+                    )}
                   </div>
                 )}
 
@@ -579,6 +823,28 @@ export default function Home() {
                   </p>
                 </div>
 
+                {/* Resultado Real */}
+                {(() => {
+                  const res = matchResults[m.id] || m.match_result;
+                  const btn = (label, val, color) => (
+                    <button key={val} onClick={(e) => markResult(m.id, val, e)} style={{
+                      padding: '4px 12px', borderRadius: '6px', fontSize: '11px', fontWeight: '900',
+                      cursor: 'pointer', border: `1px solid ${res === val ? color : 'rgba(255,255,255,0.1)'}`,
+                      background: res === val ? `${color}22` : 'transparent',
+                      color: res === val ? color : 'rgba(255,255,255,0.3)',
+                      transition: 'all 0.15s',
+                    }}>{label}</button>
+                  );
+                  return (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px' }} onClick={e => e.stopPropagation()}>
+                      <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.25)', textTransform: 'uppercase', letterSpacing: '1px' }}>Resultado</span>
+                      {btn('✓ Acertou', 'W', '#28a745')}
+                      {btn('= Empate', 'D', '#fba94c')}
+                      {btn('✗ Falhou', 'L', '#d73a49')}
+                    </div>
+                  );
+                })()}
+
                 {/* Seleção Checkbox Vibe */}
                 <div style={{ position: 'absolute', top: '22px', left: '-8px', width: '3px', height: '24px', backgroundColor: isSelected ? 'var(--mm-orange)' : 'transparent', borderRadius: '0 4px 4px 0' }}></div>
               </div>
@@ -587,234 +853,282 @@ export default function Home() {
         </div>
 
         {matches.length > 0 && (
-           <button 
-             className="btn-mm"
-             style={{ marginTop: '30px', backgroundColor: 'var(--bg-panel)', color: 'var(--text-primary)', border: '1px solid var(--border-light)' }} 
-             onClick={loadMore}
-             disabled={loading}
-           >
-             {loading ? 'Fetching...' : 'Load More Pools'}
-           </button>
+          <button
+            className="btn-mm"
+            style={{ marginTop: '30px', backgroundColor: 'var(--bg-panel)', color: 'var(--text-primary)', border: '1px solid var(--border-light)' }}
+            onClick={loadMore}
+            disabled={loading}
+          >
+            {loading ? 'A carregar...' : 'Carregar mais jogos'}
+          </button>
         )}
       </div>
 
       {/* Direita: A Sidebar Flutuante do Boletim Tipo Metamask */}
-      <aside className="sidebar">
-         
-         {/* TABS HEADER */}
-         <div style={{ display: 'flex', borderBottom: '1px solid var(--border-light)' }}>
-            <button 
-              onClick={() => setActiveTab('slip')}
-              style={{ flex: 1, padding: '24px 16px', background: 'transparent', border: 'none', borderBottom: activeTab === 'slip' ? '3px solid var(--mm-orange)' : '3px solid transparent', color: activeTab === 'slip' ? 'var(--text-primary)' : 'var(--text-secondary)', fontWeight: 'bold', fontSize: '16px', cursor: 'pointer', transition: 'all 0.2s' }}
-            >
-              Bet Slip {betSlip.length > 0 && <span style={{backgroundColor:'var(--mm-orange)', color:'white', borderRadius:'12px', padding:'2px 8px', fontSize:'12px', marginLeft:'6px'}}>{betSlip.length}</span>}
-            </button>
-            <button 
-              onClick={() => setActiveTab('history')}
-              style={{ flex: 1, padding: '24px 16px', background: 'transparent', border: 'none', borderBottom: activeTab === 'history' ? '3px solid var(--mm-orange)' : '3px solid transparent', color: activeTab === 'history' ? 'var(--text-primary)' : 'var(--text-secondary)', fontWeight: 'bold', fontSize: '16px', cursor: 'pointer', transition: 'all 0.2s' }}
-            >
-              Pending & History {history.length > 0 && <span style={{backgroundColor:'var(--border-light)', color:'var(--text-primary)', borderRadius:'12px', padding:'2px 8px', fontSize:'12px', marginLeft:'6px'}}>{history.length}</span>}
-            </button>
-         </div>
+      {/* Backdrop mobile */}
+      <div
+        className={`sidebar-backdrop ${drawerOpen ? 'visible' : ''}`}
+        onClick={() => setDrawerOpen(false)}
+      />
 
-         {/* CONTENT VIEW */}
-         <div style={{ flex: 1, overflowY: 'auto', padding: '24px' }}>
-            {activeTab === 'slip' ? (
-              <>
-                {betSlip.length === 0 ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', opacity: 0.6 }}>
-                     <div style={{ fontSize: '40px', marginBottom: '16px', filter: 'grayscale(1)' }}>🦊</div>
-                     <p style={{ color: 'var(--text-secondary)', textAlign: 'center', margin: 0, lineHeight: 1.5 }}>Your slip is empty.<br/>Select matches to build a multiplier.</p>
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                     {betSlip.map((b, i) => (
-                       <div key={i} className="card fade-in" style={{ padding: '16px', borderColor: 'var(--border-light)' }}>
-                          <button 
-                            onClick={() => toggleBet(b)}
-                            style={{ position: 'absolute', top: '16px', right: '16px', background: 'transparent', color: 'var(--text-secondary)', border: 'none', cursor: 'pointer', fontSize: '16px', padding: 0 }}
-                          >
-                            ✕
-                          </button>
-                          <h4 style={{ margin: '0 0 8px 0', fontSize: '15px', color: 'var(--text-primary)' }}>{b.team_home}</h4>
-                          <p style={{ fontSize: '12px', color: 'var(--mm-blue)', margin: 0, fontWeight: '600' }}>{b.market || 'Match Winner'}</p>
-                          <div style={{ textAlign: 'right', fontWeight: '900', color: 'var(--mm-orange)', fontSize: '18px', marginTop: '8px' }}>
-                            {b.odd.toFixed(2)}x
-                          </div>
-                       </div>
-                     ))}
-                  </div>
-                )}
-              </>
-            ) : (
-              // TAB HISTORY — com filtros por período, agrupamento e export CSV
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                
-                {/* Performance Summary */}
-                <div style={{ padding: '16px', backgroundColor: 'var(--bg-main)', borderRadius: 'var(--radius-card)', border: '1px solid var(--border-light)' }}>
-                  <p style={{ margin: '0 0 10px 0', fontSize: '10px', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 'bold' }}>Performance Summary</p>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
-                    <div>
-                      <p style={{ margin: 0, fontSize: '10px', color: 'var(--text-secondary)' }}>Investido</p>
-                      <strong style={{ fontSize: '14px' }}>{stats.totalStaked.toFixed(0)}€</strong>
-                    </div>
-                    <div style={{ textAlign: 'center' }}>
-                      <p style={{ margin: 0, fontSize: '10px', color: 'var(--text-secondary)' }}>Win Rate</p>
-                      <strong style={{ fontSize: '14px', color: winRate >= 50 ? 'var(--mm-green)' : 'var(--mm-orange)' }}>{isNaN(winRate) ? '—' : `${winRate}%`}</strong>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <p style={{ margin: 0, fontSize: '10px', color: 'var(--text-secondary)' }}>P/L</p>
-                      <strong style={{ fontSize: '14px', color: netProfit >= 0 ? 'var(--mm-green)' : 'var(--mm-red)' }}>{netProfit >= 0 ? '+' : ''}{netProfit}€</strong>
-                    </div>
-                  </div>
+<aside className={`sidebar ${drawerOpen ? 'drawer-open' : ''}`}>
+
+        {/* Handle mobile drag */}
+        <div className="drawer-handle" onClick={() => setDrawerOpen(false)} style={{ cursor: 'pointer' }} />
+
+        {/* TABS HEADER — sempre visível no mobile (é o "peek") */}
+        <div style={{ display: 'flex', borderBottom: '1px solid var(--border-light)', position: 'relative' }}>
+          <button
+            onClick={() => { setActiveTab('slip'); setDrawerOpen(true); }}
+            style={{ flex: 1, padding: '14px 16px', background: 'transparent', border: 'none', borderBottom: activeTab === 'slip' ? '3px solid var(--mm-orange)' : '3px solid transparent', color: activeTab === 'slip' ? 'var(--text-primary)' : 'var(--text-secondary)', fontWeight: 'bold', fontSize: '15px', cursor: 'pointer', transition: 'all 0.2s', touchAction: 'manipulation' }}
+          >
+            🎟 Boletim {betSlip.length > 0 && <span style={{ backgroundColor: 'var(--mm-orange)', color: 'white', borderRadius: '12px', padding: '2px 8px', fontSize: '12px', marginLeft: '6px' }}>{betSlip.length}</span>}
+          </button>
+          <button
+            onClick={() => { setActiveTab('history'); setDrawerOpen(true); }}
+            style={{ flex: 1, padding: '14px 16px', background: 'transparent', border: 'none', borderBottom: activeTab === 'history' ? '3px solid var(--mm-orange)' : '3px solid transparent', color: activeTab === 'history' ? 'var(--text-primary)' : 'var(--text-secondary)', fontWeight: 'bold', fontSize: '15px', cursor: 'pointer', transition: 'all 0.2s', touchAction: 'manipulation' }}
+          >
+            📋 Histórico {history.length > 0 && <span style={{ backgroundColor: 'var(--border-light)', color: 'var(--text-primary)', borderRadius: '12px', padding: '2px 8px', fontSize: '12px', marginLeft: '6px' }}>{history.length}</span>}
+          </button>
+          {/* Fechar drawer — só visível quando aberto */}
+          {drawerOpen && (
+            <button onClick={() => setDrawerOpen(false)} style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', color: 'var(--text-secondary)', fontSize: '22px', cursor: 'pointer', lineHeight: 1, padding: '8px', touchAction: 'manipulation' }}>✕</button>
+          )}
+        </div>
+
+        {/* CONTENT VIEW */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '24px' }}>
+          {activeTab === 'slip' ? (
+            <>
+              {betSlip.length === 0 ? (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', opacity: 0.6 }}>
+                  <div style={{ fontSize: '40px', marginBottom: '16px', filter: 'grayscale(1)' }}>🦊</div>
+                  <p style={{ color: 'var(--text-secondary)', textAlign: 'center', margin: 0, lineHeight: 1.5 }}>O teu boletim está vazio.<br />Seleciona jogos para construir uma múltipla.</p>
                 </div>
-
-                {/* Filtros de Período + Export */}
-                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                  {['all','week','month'].map(f => (
-                    <button key={f} onClick={() => setHistoryFilter(f)} style={{
-                      flex: 1, padding: '6px 4px', fontSize: '11px', fontWeight: '600',
-                      border: '1px solid var(--border-light)', borderRadius: '6px', cursor: 'pointer',
-                      background: historyFilter === f ? 'var(--mm-orange)' : 'transparent',
-                      color: historyFilter === f ? 'white' : 'var(--text-secondary)',
-                      transition: 'all 0.2s'
-                    }}>
-                      {f === 'all' ? 'Tudo' : f === 'week' ? 'Semana' : 'Mês'}
-                    </button>
-                  ))}
-                  <button onClick={exportCSV} title="Exportar CSV" style={{
-                    padding: '6px 10px', fontSize: '14px', border: '1px solid var(--border-light)',
-                    borderRadius: '6px', cursor: 'pointer', background: 'transparent',
-                    color: 'var(--mm-green)', transition: 'all 0.2s'
-                  }}>📥</button>
-                </div>
-
-                {/* Lista agrupada */}
-                {filteredHistory.length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: '40px 0', opacity: 0.5 }}>
-                    <div style={{ fontSize: '32px', marginBottom: '8px' }}>📭</div>
-                    <p style={{ color: 'var(--text-secondary)', margin: 0, fontSize: '13px' }}>Sem apostas neste período.</p>
-                  </div>
-                ) : (
-                  Object.entries(groupedHistory).map(([period, bets]) => (
-                    <div key={period}>
-                      {/* Cabeçalho do Período */}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0 6px 0', marginBottom: '8px', borderBottom: '1px solid var(--border-light)' }}>
-                        <span style={{ fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--mm-orange)' }}>{period}</span>
-                        <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>{bets.length} aposta{bets.length !== 1 ? 's' : ''}</span>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  {betSlip.map((b, i) => (
+                    <div key={i} className="card fade-in" style={{ padding: '16px', borderColor: 'var(--border-light)' }}>
+                      <button
+                        onClick={() => toggleBet(b)}
+                        style={{ position: 'absolute', top: '16px', right: '16px', background: 'transparent', color: 'var(--text-secondary)', border: 'none', cursor: 'pointer', fontSize: '16px', padding: 0 }}
+                      >
+                        ✕
+                      </button>
+                      <h4 style={{ margin: '0 0 8px 0', fontSize: '15px', color: 'var(--text-primary)' }}>{b.team_home}</h4>
+                      <p style={{ fontSize: '12px', color: 'var(--mm-blue)', margin: 0, fontWeight: '600' }}>{b.market || 'Vitória Casa'}</p>
+                      <div style={{ textAlign: 'right', fontWeight: '900', color: 'var(--mm-orange)', fontSize: '18px', marginTop: '8px' }}>
+                        {b.odd.toFixed(2)}x
                       </div>
-
-                      {bets.map((record) => {
-                        const isPending = record.status === 'PENDING';
-                        const isWon = record.status === 'WON';
-                        const statusColor = isWon ? 'var(--mm-green)' : (isPending ? 'var(--warning)' : 'var(--mm-red)');
-                        
-                        return (
-                          <div key={record.id} className="card fade-in" style={{ padding: '14px', borderLeft: `3px solid ${statusColor}`, marginBottom: '10px', position: 'relative' }}>
-                            
-                            {/* Header: Ticket + Status + Delete */}
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>#{record.id.substring(0,8).toUpperCase()}</span>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                {isPending && <span style={{ fontSize: '11px', fontWeight: 'bold', color: 'var(--warning)', backgroundColor: 'rgba(251,169,76,0.1)', padding: '2px 7px', borderRadius: '4px' }}>⏰ PENDING</span>}
-                                {isWon && <span style={{ fontSize: '11px', fontWeight: 'bold', color: 'var(--mm-green)', backgroundColor: 'rgba(40,167,69,0.1)', padding: '2px 7px', borderRadius: '4px' }}>✅ WON</span>}
-                                {!isPending && !isWon && <span style={{ fontSize: '11px', fontWeight: 'bold', color: 'var(--mm-red)', backgroundColor: 'rgba(215,58,73,0.1)', padding: '2px 7px', borderRadius: '4px' }}>❌ LOST</span>}
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); if(confirm('Apagar esta aposta?')) deleteBet(record.id); }}
-                                  title="Apagar aposta"
-                                  style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'rgba(215,58,73,0.5)', fontSize: '14px', padding: '2px 4px', borderRadius: '4px', transition: 'color 0.2s' }}
-                                  onMouseEnter={e => e.target.style.color='var(--mm-red)'}
-                                  onMouseLeave={e => e.target.style.color='rgba(215,58,73,0.5)'}
-                                >🗑️</button>
-                              </div>
-                            </div>
-
-                            {/* Jogos */}
-                            <div style={{ borderBottom: '1px solid var(--border-light)', paddingBottom: '10px', marginBottom: '10px' }}>
-                              {record.matches.map((m, ii) => (
-                                <div key={ii} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '4px' }}>
-                                  <span style={{ color: 'var(--text-primary)' }}>{m.team_home}</span>
-                                  <span style={{ color: 'var(--mm-orange)', fontWeight: 'bold' }}>{m.odd?.toFixed(2) || m.odd}</span>
-                                </div>
-                              ))}
-                            </div>
-
-                            {/* Stake + Return */}
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: isPending ? '12px' : '0' }}>
-                              <div>
-                                <p style={{ margin: '0 0 2px 0', fontSize: '11px', color: 'var(--text-secondary)' }}>Stake</p>
-                                <strong style={{ color: 'var(--text-primary)', fontSize: '13px' }}>{record.stake} EUR</strong>
-                              </div>
-                              <div style={{ textAlign: 'right' }}>
-                                <p style={{ margin: '0 0 2px 0', fontSize: '11px', color: 'var(--text-secondary)' }}>Retorno</p>
-                                <strong style={{ color: 'var(--mm-green)', fontSize: '13px' }}>{record.potential_return || record.potentialReturn} EUR</strong>
-                              </div>
-                            </div>
-                            
-                            {/* Win/Lose buttons para PENDING */}
-                            {isPending && (
-                              <div style={{ display: 'flex', gap: '8px', borderTop: '1px solid var(--border-light)', paddingTop: '10px' }}>
-                                <button 
-                                  onClick={() => resolveBet(record.id, 'WON', parseFloat(record.potential_return || record.potentialReturn))}
-                                  style={{ flex: 1, backgroundColor: 'rgba(40,167,69,0.1)', color: 'var(--mm-green)', border: '1px solid var(--mm-green)', borderRadius: '6px', padding: '7px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}
-                                >✅ Win Bet</button>
-                                <button 
-                                  onClick={() => resolveBet(record.id, 'LOST', 0)}
-                                  style={{ flex: 1, backgroundColor: 'rgba(215,58,73,0.1)', color: 'var(--mm-red)', border: '1px solid var(--mm-red)', borderRadius: '6px', padding: '7px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}
-                                >❌ Lose Bet</button>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
                     </div>
-                  ))
-                )}
+                  ))}
+                </div>
+              )}
+            </>
+          ) : (
+            // TAB HISTORY — com filtros por período, agrupamento e export CSV
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+
+              {/* Performance Summary */}
+              <div style={{ padding: '16px', backgroundColor: 'var(--bg-main)', borderRadius: 'var(--radius-card)', border: '1px solid var(--border-light)' }}>
+                <p style={{ margin: '0 0 10px 0', fontSize: '10px', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 'bold' }}>Performance Summary</p>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
+                  <div>
+                    <p style={{ margin: 0, fontSize: '10px', color: 'var(--text-secondary)' }}>Investido</p>
+                    <strong style={{ fontSize: '14px' }}>{stats.totalStaked.toFixed(0)}€</strong>
+                  </div>
+                  <div style={{ textAlign: 'center' }}>
+                    <p style={{ margin: 0, fontSize: '10px', color: 'var(--text-secondary)' }}>Win Rate</p>
+                    <strong style={{ fontSize: '14px', color: winRate >= 50 ? 'var(--mm-green)' : 'var(--mm-orange)' }}>{isNaN(winRate) ? '—' : `${winRate}%`}</strong>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <p style={{ margin: 0, fontSize: '10px', color: 'var(--text-secondary)' }}>P/L</p>
+                    <strong style={{ fontSize: '14px', color: netProfit >= 0 ? 'var(--mm-green)' : 'var(--mm-red)' }}>{netProfit >= 0 ? '+' : ''}{netProfit}€</strong>
+                  </div>
+                </div>
+              </div>
+
+              {/* Filtros de Período + Export */}
+              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                {['all', 'week', 'month'].map(f => (
+                  <button key={f} onClick={() => setHistoryFilter(f)} style={{
+                    flex: 1, padding: '6px 4px', fontSize: '11px', fontWeight: '600',
+                    border: '1px solid var(--border-light)', borderRadius: '6px', cursor: 'pointer',
+                    background: historyFilter === f ? 'var(--mm-orange)' : 'transparent',
+                    color: historyFilter === f ? 'white' : 'var(--text-secondary)',
+                    transition: 'all 0.2s'
+                  }}>
+                    {f === 'all' ? 'Tudo' : f === 'week' ? 'Semana' : 'Mês'}
+                  </button>
+                ))}
+                <button onClick={exportCSV} title="Exportar CSV" style={{
+                  padding: '6px 10px', fontSize: '14px', border: '1px solid var(--border-light)',
+                  borderRadius: '6px', cursor: 'pointer', background: 'transparent',
+                  color: 'var(--mm-green)', transition: 'all 0.2s'
+                }}>📥</button>
+              </div>
+
+              {/* Lista agrupada */}
+              {filteredHistory.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '40px 0', opacity: 0.5 }}>
+                  <div style={{ fontSize: '32px', marginBottom: '8px' }}>📭</div>
+                  <p style={{ color: 'var(--text-secondary)', margin: 0, fontSize: '13px' }}>Sem apostas neste período.</p>
+                </div>
+              ) : (
+                Object.entries(groupedHistory).map(([period, bets]) => (
+                  <div key={period}>
+                    {/* Cabeçalho do Período */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0 6px 0', marginBottom: '8px', borderBottom: '1px solid var(--border-light)' }}>
+                      <span style={{ fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--mm-orange)' }}>{period}</span>
+                      <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>{bets.length} aposta{bets.length !== 1 ? 's' : ''}</span>
+                    </div>
+
+                    {bets.map((record) => {
+                      const isPending = record.status === 'PENDING';
+                      const isWon = record.status === 'WON';
+                      const isOpen = expandedBet === record.id;
+                      const sc = isWon ? '#28a745' : isPending ? '#fba94c' : '#d73a49';
+                      const icon = isWon ? '✓' : isPending ? '⏳' : '✗';
+                      const label = record.matches.length > 1
+                        ? `${record.matches.length} jogos`
+                        : record.matches[0]?.team_home || '—';
+                      const totalOddVal = record.total_odd ? parseFloat(record.total_odd).toFixed(2) : '—';
+                      const ret = parseFloat(record.potential_return || record.potentialReturn).toFixed(2);
+
+                      return (
+                        <div key={record.id} style={{ borderRadius: '10px', overflow: 'hidden', marginBottom: '6px', border: `1px solid ${sc}33`, background: 'var(--bg-panel)' }}>
+
+                          {/* Linha compacta — clica para expandir */}
+                          <div
+                            onClick={() => setExpandedBet(isOpen ? null : record.id)}
+                            style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px', cursor: 'pointer' }}
+                          >
+                            <span style={{ fontSize: '13px', fontWeight: '900', color: sc, width: '16px', flexShrink: 0 }}>{icon}</span>
+                            <span style={{ flex: 1, fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
+                            <span style={{ fontSize: '12px', fontWeight: '800', color: 'var(--mm-orange)', flexShrink: 0 }}>{totalOddVal}x</span>
+                            <span style={{ fontSize: '13px', fontWeight: '800', color: sc, flexShrink: 0 }}>{record.stake}€</span>
+                            <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', flexShrink: 0 }}>{isOpen ? '▲' : '▼'}</span>
+                          </div>
+
+                          {/* Detalhes expandidos */}
+                          {isOpen && (
+                            <div style={{ borderTop: `1px solid ${sc}22` }}>
+                              {/* Jogos */}
+                              <div style={{ padding: '8px 12px' }}>
+                                {record.matches.map((m, ii) => (
+                                  <div key={ii} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', borderBottom: ii < record.matches.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                      <div style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.team_home}</div>
+                                      {m.team_away && <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)' }}>vs {m.team_away}</div>}
+                                      {m.market && <div style={{ fontSize: '10px', color: 'var(--mm-blue)', fontWeight: '600', marginTop: '2px' }}>{m.market}</div>}
+                                    </div>
+                                    <span style={{ fontSize: '13px', fontWeight: '900', color: 'var(--mm-orange)', marginLeft: '8px' }}>{parseFloat(m.odd).toFixed(2)}x</span>
+                                  </div>
+                                ))}
+                              </div>
+
+                              {/* Stake / Retorno / Data */}
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', backgroundColor: 'rgba(255,255,255,0.03)' }}>
+                                <div>
+                                  <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)' }}>APOSTA</div>
+                                  <div style={{ fontSize: '13px', fontWeight: '800' }}>{record.stake}€</div>
+                                </div>
+                                <div style={{ textAlign: 'center' }}>
+                                  <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)' }}>DATA</div>
+                                  <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)' }}>{new Date(record.created_at).toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</div>
+                                </div>
+                                <div style={{ textAlign: 'right' }}>
+                                  <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)' }}>RETORNO</div>
+                                  <div style={{ fontSize: '13px', fontWeight: '800', color: '#28a745' }}>{ret}€</div>
+                                </div>
+                              </div>
+
+                              {/* Botões PENDING + Apagar */}
+                              <div style={{ display: 'flex', gap: '1px', backgroundColor: 'rgba(255,255,255,0.05)' }}>
+                                {isPending && <>
+                                  <button onClick={() => resolveBet(record.id, 'WON', parseFloat(ret))} style={{ flex: 1, padding: '10px', background: 'rgba(40,167,69,0.15)', color: '#28a745', border: 'none', cursor: 'pointer', fontWeight: '800', fontSize: '12px' }}>✓ Ganhou</button>
+                                  <button onClick={() => resolveBet(record.id, 'LOST', 0)} style={{ flex: 1, padding: '10px', background: 'rgba(215,58,73,0.15)', color: '#d73a49', border: 'none', cursor: 'pointer', fontWeight: '800', fontSize: '12px' }}>✗ Perdeu</button>
+                                </>}
+                                <button onClick={(e) => { e.stopPropagation(); if (confirm('Apagar esta aposta?')) deleteBet(record.id); }} style={{ padding: '10px 14px', background: 'rgba(215,58,73,0.08)', color: 'rgba(215,58,73,0.6)', border: 'none', cursor: 'pointer', fontSize: '13px' }}>🗑</button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Painel Matemático Final em estilo Swap (Apenas Visível na Tab Slip) */}
+        {activeTab === 'slip' && (
+          <div style={{ padding: '20px', backgroundColor: 'var(--bg-main)', borderTop: '1px solid var(--border-light)' }}>
+
+            {/* Alerta de múltipla */}
+            {combinedProb !== null && (
+              <div style={{ marginBottom: '16px', padding: '12px', borderRadius: '10px', backgroundColor: 'rgba(215,58,73,0.08)', border: '1px solid rgba(215,58,73,0.25)' }}>
+                <div style={{ fontSize: '12px', fontWeight: '800', color: '#d73a49', marginBottom: '6px' }}>⚠️ ATENÇÃO — APOSTA MÚLTIPLA</div>
+                <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)', lineHeight: 1.5 }}>
+                  Probabilidade combinada de ganhar: <strong style={{ color: '#fba94c' }}>{(combinedProb * 100).toFixed(1)}%</strong>
+                  {' '}({betSlip.map(m => `${m.confidence || 60}%`).join(' × ')})
+                </div>
+                <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.35)', marginTop: '4px' }}>
+                  Cada jogo adicional multiplica o risco. Apostas simples têm melhor EV a longo prazo.
+                </div>
               </div>
             )}
-         </div>
 
-         {/* Painel Matemático Final em estilo Swap (Apenas Visível na Tab Slip) */}
-         {activeTab === 'slip' && (
-           <div style={{ padding: '24px', backgroundColor: 'var(--bg-main)', borderTop: '1px solid var(--border-light)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)', marginBottom: '16px', fontSize: '14px' }}>
-                 <span>Total Multiplier</span>
-                 <strong style={{ color: 'var(--text-primary)' }}>{betSlip.length > 0 ? totalOdd : '0.00'}x</strong>
-              </div>
-              
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '24px' }}>
-                 <label style={{ color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600', letterSpacing: '1px' }}>STAKE AMOUNT (EUR)</label>
-                 <div style={{ position: 'relative' }}>
-                   <input 
-                     type="number" 
-                     min="1"
-                     max={wallet}
-                     value={stake} 
-                     onChange={(e) => setStake(Number(e.target.value))}
-                     style={{ width: '100%', boxSizing: 'border-box', backgroundColor: 'var(--bg-panel)', color: 'var(--text-primary)', border: '1px solid var(--border-light)', borderRadius: '12px', padding: '16px', paddingRight: '60px', fontSize: '20px', fontWeight: '700', outline: 'none' }}
-                   />
-                   <span style={{ position: 'absolute', right: '16px', top: '50%', transform: 'translateY(-50%)', color: 'var(--mm-orange)', fontWeight: 'bold' }}>EUR</span>
-                 </div>
-                 
-                 {stake > wallet && <span style={{ color: 'var(--mm-red)', fontSize: '13px', marginTop: '4px' }}>Insufficient funds in wallet</span>}
-              </div>
+            {/* Odd total */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)', marginBottom: '14px', fontSize: '14px' }}>
+              <span>Odd Total</span>
+              <strong style={{ color: 'var(--text-primary)' }}>{betSlip.length > 0 ? totalOdd : '0.00'}x</strong>
+            </div>
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', padding: '16px', backgroundColor: 'var(--bg-panel)', borderRadius: '12px', border: '1px solid var(--border-light)' }}>
-                 <span style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>Est. Return</span>
-                 <strong style={{ color: 'var(--text-primary)', fontSize: '24px' }}>{betSlip.length > 0 ? potentialReturn : '0.00'}</strong>
+            {/* Kelly sugerido */}
+            {kellyStake !== null && (
+              <div style={{ marginBottom: '14px', padding: '10px 14px', borderRadius: '10px', backgroundColor: 'rgba(40,167,69,0.07)', border: '1px solid rgba(40,167,69,0.2)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', marginBottom: '2px' }}>KELLY SUGERIDO <span style={{ fontSize: '10px' }}>(½ Kelly)</span></div>
+                  <div style={{ fontSize: '16px', fontWeight: '900', color: '#28a745' }}>{kellyStake.toFixed(2)}€</div>
+                </div>
+                <button
+                  onClick={() => setStake(parseFloat(kellyStake.toFixed(2)))}
+                  style={{ padding: '6px 12px', borderRadius: '8px', background: 'rgba(40,167,69,0.15)', color: '#28a745', border: '1px solid rgba(40,167,69,0.3)', cursor: 'pointer', fontSize: '12px', fontWeight: '700' }}
+                >Usar</button>
               </div>
+            )}
 
-              <button 
-                className="btn-mm"
-                onClick={placeBet}
-                disabled={betSlip.length === 0 || stake > wallet}
-              >
-                Sign & Place Bet
-              </button>
-           </div>
-         )}
+            {/* Input stake */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '16px' }}>
+              <label style={{ color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600', letterSpacing: '1px' }}>VALOR A APOSTAR (EUR)</label>
+              <div style={{ position: 'relative' }}>
+                <input
+                  type="number" min="1" max={wallet} value={stake}
+                  onChange={(e) => setStake(Number(e.target.value))}
+                  style={{ width: '100%', boxSizing: 'border-box', backgroundColor: 'var(--bg-panel)', color: 'var(--text-primary)', border: '1px solid var(--border-light)', borderRadius: '12px', padding: '16px', paddingRight: '60px', fontSize: '20px', fontWeight: '700', outline: 'none' }}
+                />
+                <span style={{ position: 'absolute', right: '16px', top: '50%', transform: 'translateY(-50%)', color: 'var(--mm-orange)', fontWeight: 'bold' }}>EUR</span>
+              </div>
+              {stake > wallet && <span style={{ color: 'var(--mm-red)', fontSize: '13px' }}>Saldo insuficiente</span>}
+            </div>
+
+            {/* Retorno */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', padding: '14px 16px', backgroundColor: 'var(--bg-panel)', borderRadius: '12px', border: '1px solid var(--border-light)' }}>
+              <span style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>Retorno Potencial</span>
+              <strong style={{ color: 'var(--text-primary)', fontSize: '24px' }}>{betSlip.length > 0 ? potentialReturn : '0.00'}</strong>
+            </div>
+
+            <button className="btn-mm" onClick={placeBet} disabled={betSlip.length === 0 || stake > wallet}>
+              Confirmar Aposta
+            </button>
+          </div>
+        )}
       </aside>
-      <style dangerouslySetInnerHTML={{__html: `
+      <style dangerouslySetInnerHTML={{
+        __html: `
         @keyframes spin { 100% { transform: rotate(360deg); } }
       `}} />
     </div>

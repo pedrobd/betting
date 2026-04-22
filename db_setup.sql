@@ -1,4 +1,9 @@
--- Migração: Adicionar colunas de xG, EV e Value Bet
+-- Migração: H2H e Odds Movement
+ALTER TABLE betting_predictions
+  ADD COLUMN IF NOT EXISTS h2h jsonb DEFAULT '[]',
+  ADD COLUMN IF NOT EXISTS odd_previous numeric DEFAULT 0;
+
+-- Migração: Adicionar colunas de xG, EV, Value Bet, Odds 1X e Over 1.5
 ALTER TABLE betting_predictions
   ADD COLUMN IF NOT EXISTS home_form text,
   ADD COLUMN IF NOT EXISTS away_form text,
@@ -8,7 +13,10 @@ ALTER TABLE betting_predictions
   ADD COLUMN IF NOT EXISTS home_xg numeric DEFAULT 0,
   ADD COLUMN IF NOT EXISTS away_xg numeric DEFAULT 0,
   ADD COLUMN IF NOT EXISTS ev numeric DEFAULT 0,
-  ADD COLUMN IF NOT EXISTS is_value_bet boolean DEFAULT false;
+  ADD COLUMN IF NOT EXISTS is_value_bet boolean DEFAULT false,
+  ADD COLUMN IF NOT EXISTS odd_draw numeric DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS odd_1x numeric DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS odd_over15 numeric DEFAULT 0;
 
 -- Schema completo (para criação limpa)
 -- Cria a Tabela da Carteira (Wallet)
@@ -39,6 +47,9 @@ CREATE TABLE IF NOT EXISTS betting_predictions (
   team_home text NOT NULL,
   team_away text NOT NULL,
   odd numeric NOT NULL,
+  odd_draw numeric DEFAULT 0,
+  odd_1x numeric DEFAULT 0,
+  odd_over15 numeric DEFAULT 0,
   time text NOT NULL,
   confidence numeric NOT NULL,
   reasoning text,
