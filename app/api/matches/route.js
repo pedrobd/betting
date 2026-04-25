@@ -44,9 +44,12 @@ export async function POST(req) {
       // Jogo ainda não aconteceu no dia do sync → mostrar
       if (matchOnSyncDay > now) return true;
 
-      // Caso especial: sync feito tarde (< 8h atrás) e jogo é no dia seguinte
+      // Caso especial: jogo do dia seguinte scraped no sync de hoje
+      // Só aplica se o jogo estava 2+ horas antes do sync (evita tratar jogos que
+      // acabaram de começar como se fossem "amanhã")
       const syncedVeryRecently = (now - syncDate) < 8 * 60 * 60 * 1000;
-      if (syncedVeryRecently) {
+      const hoursBeforeSync = (syncDate - matchOnSyncDay) / (1000 * 60 * 60);
+      if (syncedVeryRecently && hoursBeforeSync > 2) {
         const matchNextDay = new Date(matchOnSyncDay);
         matchNextDay.setDate(matchNextDay.getDate() + 1);
         if (matchNextDay > now) return true;

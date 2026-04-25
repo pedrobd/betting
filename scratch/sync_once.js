@@ -103,13 +103,10 @@ try {
         await new Promise(r => setTimeout(r, 1200));
     }
 
-    console.log(`\n📥 A atualizar ${records.length} registos na DB...`);
+    console.log(`\n📥 A substituir todos os registos (${records.length} jogos)...`);
 
-    // Apagar registos existentes com o mesmo jogo (evita conflito de constraint)
-    for (const rec of records) {
-        await supabaseAdmin.from('betting_predictions').delete()
-            .eq('team_home', rec.team_home).eq('team_away', rec.team_away).eq('time', rec.time);
-    }
+    // Limpa toda a tabela antes de inserir — garante que jogos já começados não ficam na DB
+    await supabaseAdmin.from('betting_predictions').delete().gte('created_at', '2000-01-01');
     const { error } = await supabaseAdmin.from('betting_predictions').insert(records);
 
     if (error) {
