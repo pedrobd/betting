@@ -582,10 +582,11 @@ export default function Home() {
         {/* Tabs de Filtro do Feed */}
         <div style={{ display: 'flex', gap: '8px', marginTop: '16px', marginBottom: '16px', overflowX: 'auto', paddingBottom: '4px', WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none' }}>
           {[
-            { id: 'all',    label: 'Todos',     color: null },
-            { id: '1x',     label: '1X Seguro', color: null },
-            { id: 'ultra',  label: '🔒 Ultra',  color: '#00e5ff' },
-            { id: 'over15', label: '⚽ Over 1.5', color: '#28e87d' },
+            { id: 'all',    label: 'Todos',        color: null },
+            { id: 'casa',   label: '🏠 Favoritos', color: '#fba94c' },
+            { id: '1x',     label: '1X Seguro',    color: null },
+            { id: 'ultra',  label: '🔒 Ultra',     color: '#00e5ff' },
+            { id: 'over15', label: '⚽ Over 1.5',  color: '#28e87d' },
           ].map(f => (
             <button key={f.id} onClick={() => setFeedFilter(f.id)} style={{
               padding: '7px 14px', borderRadius: '100px', border: `1px solid ${feedFilter === f.id && f.color ? f.color : 'var(--border-light)'}`,
@@ -615,6 +616,10 @@ export default function Home() {
         <div className="matches-grid" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           {matches.filter(m => {
             if (feedFilter === 'all') return true;
+
+            if (feedFilter === 'casa') {
+              return m.odd > 1.0 && m.odd <= 1.49;
+            }
 
             if (feedFilter === '1x') {
               const isValidFavorite = m.odd > 1.10 && m.odd <= 2.5; // excluir super-favoritos triviais
@@ -698,7 +703,10 @@ export default function Home() {
               return { ...m, odd: real1xOdd, market: '🔒 Ultra Seg (1X)' };
             }
             return { ...m, market: 'Vitória Casa' };
-          }).map((m, idx) => {
+          }).sort((a, b) => feedFilter === 'casa' ? b.confidence - a.confidence : 0)
+          .map((m, idx, arr) => {
+            const isMostLikely = feedFilter === 'casa' && arr.length > 1 && idx === 0;
+            const isLeastLikely = feedFilter === 'casa' && arr.length > 1 && idx === arr.length - 1;
             const isSelected = betSlip.some(b => b.team_home === m.team_home);
 
             return (
@@ -726,6 +734,20 @@ export default function Home() {
                         backgroundColor: 'rgba(255,215,0,0.12)', border: '1px solid rgba(255,215,0,0.35)',
                         borderRadius: '4px', padding: '2px 5px', whiteSpace: 'nowrap',
                       }}>💎 VALUE</span>
+                    )}
+                    {isMostLikely && (
+                      <span style={{
+                        fontSize: '9px', fontWeight: '900', color: '#28e87d',
+                        backgroundColor: 'rgba(40,232,125,0.12)', border: '1px solid rgba(40,232,125,0.35)',
+                        borderRadius: '4px', padding: '2px 5px', whiteSpace: 'nowrap',
+                      }}>🥇 Mais Provável</span>
+                    )}
+                    {isLeastLikely && (
+                      <span style={{
+                        fontSize: '9px', fontWeight: '900', color: '#fba94c',
+                        backgroundColor: 'rgba(251,169,76,0.12)', border: '1px solid rgba(251,169,76,0.35)',
+                        borderRadius: '4px', padding: '2px 5px', whiteSpace: 'nowrap',
+                      }}>⚠️ Menos Provável</span>
                     )}
                   </span>
                   <div className={`badge-odd ${isSelected ? 'selected' : ''}`} style={{ fontSize: '13px', padding: '5px 10px', flexShrink: 0 }}>
