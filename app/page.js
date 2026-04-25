@@ -582,11 +582,12 @@ export default function Home() {
         {/* Tabs de Filtro do Feed */}
         <div style={{ display: 'flex', gap: '8px', marginTop: '16px', marginBottom: '16px', overflowX: 'auto', paddingBottom: '4px', WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none' }}>
           {[
-            { id: 'all',    label: 'Todos',        color: null },
-            { id: 'casa',   label: '🏠 Favoritos', color: '#fba94c' },
-            { id: '1x',     label: '1X Seguro',    color: null },
-            { id: 'ultra',  label: '🔒 Ultra',     color: '#00e5ff' },
-            { id: 'over15', label: '⚽ Over 1.5',  color: '#28e87d' },
+            { id: 'all',       label: 'Todos',         color: null },
+            { id: 'casa',      label: '🏠 Favoritos',  color: '#fba94c' },
+            { id: 'surpresa',  label: '⚡ Surpresas',  color: '#a78bfa' },
+            { id: '1x',        label: '1X Seguro',     color: null },
+            { id: 'ultra',     label: '🔒 Ultra',      color: '#00e5ff' },
+            { id: 'over15',    label: '⚽ Over 1.5',   color: '#28e87d' },
           ].map(f => (
             <button key={f.id} onClick={() => setFeedFilter(f.id)} style={{
               padding: '7px 14px', borderRadius: '100px', border: `1px solid ${feedFilter === f.id && f.color ? f.color : 'var(--border-light)'}`,
@@ -619,6 +620,15 @@ export default function Home() {
 
             if (feedFilter === 'casa') {
               return m.odd > 1.0 && m.odd <= 1.49;
+            }
+
+            if (feedFilter === 'surpresa') {
+              if (m.odd <= 2.00) return false;
+              // Modelo Poisson indica vitória casa >= 40% OU confidence >= 55%
+              const probs = calcMatchProbs(m.home_xg, m.away_xg);
+              const homeWinProb = probs ? probs.homeWin : null;
+              if (homeWinProb !== null) return homeWinProb >= 40;
+              return m.confidence >= 55;
             }
 
             if (feedFilter === '1x') {
@@ -660,6 +670,12 @@ export default function Home() {
 
             return true;
           }).map(m => {
+            if (feedFilter === 'surpresa') {
+              const probs = calcMatchProbs(m.home_xg, m.away_xg);
+              const homeWinConf = probs ? parseFloat(probs.homeWin.toFixed(1)) : m.confidence;
+              const ev = parseFloat((((homeWinConf / 100) * m.odd - 1) * 100).toFixed(2));
+              return { ...m, confidence: homeWinConf, ev, market: '⚡ Surpresa Casa' };
+            }
             if (feedFilter === '1x') {
               const probs = calcMatchProbs(m.home_xg, m.away_xg);
               // Confiança real para 1X = homeWin% + draw% do modelo Poisson DC
@@ -703,7 +719,17 @@ export default function Home() {
               return { ...m, odd: real1xOdd, market: '🔒 Ultra Seg (1X)' };
             }
             return { ...m, market: 'Vitória Casa' };
-          }).sort((a, b) => feedFilter === 'casa' ? b.confidence - a.confidence : 0)
+          }).sort((a, b) => {
+            if (feedFilter === 'casa') return b.confidence - a.confidence;
+            if (feedFilter === 'surpresa') {
+              const pA = calcMatchProbs(a.home_xg, a.away_xg);
+              const pB = calcMatchProbs(b.home_xg, b.away_xg);
+              const hwA = pA ? pA.homeWin : a.confidence;
+              const hwB = pB ? pB.homeWin : b.confidence;
+              return hwB - hwA;
+            }
+            return 0;
+          })
           .map((m, idx, arr) => {
             const isMostLikely = feedFilter === 'casa' && arr.length > 1 && idx === 0;
             const isLeastLikely = feedFilter === 'casa' && arr.length > 1 && idx === arr.length - 1;
