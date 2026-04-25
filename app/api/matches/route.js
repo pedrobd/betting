@@ -17,7 +17,7 @@ export async function POST(req) {
       .from('betting_predictions')
       .select('*')
       .gt('created_at', last48h)
-      .gte('confidence', 50)
+      .gte('confidence', 40)
       .order('created_at', { ascending: false }); // mais recentes primeiro para dedup
 
     if (error) throw error;
