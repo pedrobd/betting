@@ -6,13 +6,9 @@ import { getDailyMatches } from '../lib/flashscore.js';
 import { supabaseAdmin } from '../lib/supabase.js';
 import { fetchTeamNews } from '../lib/news.js';
 import { analyzeTextSentiment, calculateConfidence, constructReasoning, detectValueBet } from '../lib/analyzer.js';
-import { getTeamStats as getTeamStatsFotMob } from '../lib/fotmob.js';
 import { getTeamStats as getTeamStatsSofa, getH2H } from '../lib/sofascore.js';
 
 async function getTeamStats(teamName) {
-    const fm = await getTeamStatsFotMob(teamName);
-    if (fm.form) return fm; // FotMob encontrou dados — usa-os
-    console.log(`[SYNC] FotMob sem dados para "${teamName}", a tentar Sofascore...`);
     return getTeamStatsSofa(teamName);
 }
 
