@@ -624,11 +624,11 @@ export default function Home() {
 
             if (feedFilter === 'surpresa') {
               if (m.odd <= 2.00) return false;
-              // Modelo Poisson indica vitória casa >= 40% OU confidence >= 55%
+              // When xG available: use Poisson homeWin >= 35%
               const probs = calcMatchProbs(m.home_xg, m.away_xg);
-              const homeWinProb = probs ? probs.homeWin : null;
-              if (homeWinProb !== null) return homeWinProb >= 40;
-              return m.confidence >= 55;
+              if (probs) return probs.homeWin >= 35;
+              // No xG: just show all games with odd > 2.00 and basic confidence
+              return m.confidence >= 40;
             }
 
             if (feedFilter === '1x') {
